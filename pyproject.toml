@@ -1,0 +1,27 @@
+[project]
+name = "claude-architect-cert-app"
+version = "0.2.0"
+description = "CCA-F Study Guide"
+authors = [
+    {name = "Mukilan Karthikeyan", email = "mukilankarthikeyan@gmail.com"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit (>=1.58.0,<2.0.0)",
+    "pdfplumber (>=0.11.10,<0.12.0)",
+    "pypdf (>=6.13.2,<7.0.0)",
+    "streamlit-pdf-viewer (>=0.0.29,<0.0.30)",
+    "anthropic (>=0.109.2,<0.110.0)",
+    "openai (>=1.50.0,<2.0.0)",
+    "google-generativeai (>=0.8.0,<0.9.0)"
+]
+
+[project.optional-dependencies]
+# Only needed when hosting in the cloud with DATABASE_URL set (see README's
+# "Cloud Deployment & Session Persistence" section). Kept optional so the
+# default local-file install stays lightweight.
+postgres = ["psycopg2-binary (>=2.9,<3.0)"]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

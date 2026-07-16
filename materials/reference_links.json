@@ -1,0 +1,124 @@
+{
+  "sections": [
+    {
+      "title": "Official Anthropic Documentation",
+      "items": [
+        {
+          "label": "Claude Docs Overview",
+          "url": "https://platform.claude.com/docs/en/docs/overview",
+          "description": "Starting point for all Claude API and platform documentation"
+        },
+        {
+          "label": "Models Overview",
+          "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+          "description": "Compare Claude models by capability, context window, and cost"
+        },
+        {
+          "label": "Messages API Guide",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/working-with-messages",
+          "description": "Core request/response structure, multi-turn conversations, system prompts"
+        },
+        {
+          "label": "Build with Claude – Features Overview",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/overview",
+          "description": "Extended thinking, web search, file handling, structured outputs"
+        },
+        {
+          "label": "Tool Use (Function Calling)",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/tool-use/overview",
+          "description": "How to define and use tools with Claude"
+        },
+        {
+          "label": "Vision",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/vision",
+          "description": "Process and analyze images with Claude"
+        },
+        {
+          "label": "Prompt Caching",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+          "description": "Reduce latency and cost with caching"
+        },
+        {
+          "label": "Embeddings",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/embeddings",
+          "description": "Generate text embeddings for semantic search and classification"
+        },
+        {
+          "label": "API Reference",
+          "url": "https://platform.claude.com/docs/en/api/overview",
+          "description": "Full API endpoint reference and SDK documentation"
+        },
+        {
+          "label": "Claude Managed Agents",
+          "url": "https://platform.claude.com/docs/en/managed-agents/overview",
+          "description": "Pre-built agent harness for long-running, async agentic tasks"
+        }
+      ]
+    },
+    {
+      "title": "Anthropic Learning Resources",
+      "items": [
+        {
+          "label": "Anthropic Learn Hub",
+          "url": "https://www.anthropic.com/learn",
+          "description": "Official learning pathways: Build with Claude, Claude for Work, Claude for You"
+        },
+        {
+          "label": "Build with Claude (Learning Path)",
+          "url": "https://www.anthropic.com/learn/build-with-claude",
+          "description": "API guides and best practices for building Claude applications"
+        },
+        {
+          "label": "Anthropic Academy (Skilljar)",
+          "url": "https://anthropic.skilljar.com/",
+          "description": "Structured courses including Claude Code in Action and Introduction to Cowork"
+        },
+        {
+          "label": "Claude Cookbook",
+          "url": "https://platform.claude.com/cookbooks",
+          "description": "Interactive Jupyter notebooks — PDFs, embeddings, RAG, tool use, and more"
+        }
+      ]
+    },
+    {
+      "title": "Architecture & Agentic Patterns",
+      "items": [
+        {
+          "label": "Building Effective Agents",
+          "url": "https://www.anthropic.com/research/building-effective-agents",
+          "description": "Anthropic's guide to agentic architectures: workflows vs agents, patterns, pitfalls"
+        },
+        {
+          "label": "Model Context Protocol (MCP)",
+          "url": "https://modelcontextprotocol.io/introduction",
+          "description": "Open standard for connecting AI models to tools and data sources"
+        },
+        {
+          "label": "Prompt Engineering Guide",
+          "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview",
+          "description": "Official best practices for writing effective prompts"
+        },
+        {
+          "label": "Claude's Constitution & Core Principles",
+          "url": "https://www.anthropic.com/research/claude-s-constitution",
+          "description": "How Claude's values and safety behaviors are designed"
+        }
+      ]
+    },
+    {
+      "title": "Exam & Certification",
+      "items": [
+        {
+          "label": "Claude Partner Network Announcement",
+          "url": "https://www.anthropic.com/news/claude-partner-network",
+          "description": "Official announcement of Claude Certified Architect certification"
+        },
+        {
+          "label": "CertyIQ CCA-F Practice Questions",
+          "url": "https://certyiq.com/papers/anthropic/claude-certified-architect",
+          "description": "Source of the 136 practice questions included in this app"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+
+# Environment
+.env
+
+# App-specific
+.streamlit/
+
+# Claude Code
+.claude/
+
+# Node
+node_modules/
+dist/
+
+# Java
+*.class
+*.jar
+target/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Media
+*.mp4
+*.tiff
+*.avi
+*.flv
+*.mov
+*.wmv
+*.app
+*.exe
+*.war
