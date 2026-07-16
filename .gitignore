@@ -9,7 +9,8 @@ __pycache__/
 .env
 
 # App-specific
-.streamlit/
+# config.toml (theme) is safe to commit; secrets.toml never is.
+.streamlit/secrets.toml
 
 # Claude Code
 .claude/

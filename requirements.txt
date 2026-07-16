@@ -1,0 +1,12 @@
+streamlit>=1.58.0,<2.0.0
+pdfplumber>=0.11.10,<0.12.0
+pypdf>=6.13.2,<7.0.0
+streamlit-pdf-viewer>=0.0.29,<0.0.30
+anthropic>=0.109.2,<0.110.0
+openai>=1.50.0,<2.0.0
+google-generativeai>=0.8.0,<0.9.0
+
+# Uncomment if hosting with DATABASE_URL set (see README's "Cloud Deployment"
+# section) — Streamlit Community Cloud doesn't support Poetry's optional
+# extras, so this dependency lives here instead of pyproject.toml's [postgres] extra.
+# psycopg2-binary>=2.9,<3.0

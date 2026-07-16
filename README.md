@@ -169,6 +169,15 @@ The Postgres backend creates its two tables (`checkpoint_state`, `session_logs`)
 
 Any managed Postgres works (Supabase, Neon, RDS, Cloud SQL, etc.) — this app only needs the standard connection string.
 
+### Deploying to Streamlit Community Cloud
+
+1. Push this repo to GitHub (already the case if you're reading this from the repo).
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app** → pick this repo/branch and set the main file to `app.py`.
+3. Streamlit Cloud installs from `requirements.txt` automatically (not `pyproject.toml`/Poetry) — this repo ships both, so no extra step is needed. If you're using the Postgres backend, uncomment the `psycopg2-binary` line in `requirements.txt` first.
+4. In the app's **Settings → Secrets**, paste the contents of `.streamlit/secrets.toml.example` with real values filled in (only the keys you need — every one is optional). Streamlit exposes these as both `st.secrets` and `os.environ`, so `app.py`'s existing `os.environ.get(...)` calls work unchanged.
+5. Deploy. Since Streamlit Cloud's disk resets on every redeploy, set `DATABASE_URL` in secrets if you want checkpoints to survive across redeploys and be shared across viewers — otherwise each redeploy starts everyone's checkpoint fresh (still fine for a single live workshop session).
+6. `.streamlit/config.toml` in this repo sets the app's theme (teal accent) automatically — no extra configuration needed.
+
 ---
 
 ## Study Materials
