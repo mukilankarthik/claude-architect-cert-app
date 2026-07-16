@@ -133,6 +133,12 @@ THEME_CSS = """
     background: var(--cca-wrong-bg);
     border: 1px solid var(--cca-wrong-border);
 }
+section[data-testid="stSidebar"] button {
+    white-space: nowrap;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+    min-width: 0;
+}
 </style>
 """
 
@@ -397,9 +403,9 @@ with st.sidebar:
         st.divider()
 
         st.subheader("Navigator")
-        cols = st.columns(5)
+        cols = st.columns(4)
         for i in range(total):
-            col = cols[i % 5]
+            col = cols[i % 4]
             if i in st.session_state.answers:
                 label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
             elif i == st.session_state.current_idx:
@@ -428,9 +434,9 @@ with st.sidebar:
         questions = st.session_state.questions
         total = len(questions)
         st.subheader("Navigator")
-        cols = st.columns(5)
+        cols = st.columns(4)
         for i in range(total):
-            col = cols[i % 5]
+            col = cols[i % 4]
             if i in st.session_state.answers:
                 label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
             else:
