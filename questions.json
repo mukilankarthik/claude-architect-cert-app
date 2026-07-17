@@ -2241,5 +2241,160 @@
     "correct": "C",
     "explanation": "A. Report only the institute's figure as 'the' unemployment rate since it is more recent, and drop the bureau's figure from the synthesis entirely. ❌ Incorrect.\nDropping the older figure discards legitimate information about the economic trend over time and denies the reader visibility into how the metric has moved.\nB. Average the two figures into a single blended unemployment rate to present one clean number to the reader. ❌ Incorrect.\nAveraging figures collected 5 months apart from different methodologies fabricates a number that doesn't correspond to any real measurement and obscures the temporal trend.\nC. Present both figures with their sources and collection dates, noting the gap may reflect a real change over the 5-month interval rather than treating it as a contradiction requiring a single resolved number. ✅ Correct.\nRequiring and surfacing collection dates in structured subagent outputs lets the synthesizing agent recognize that a difference between sources may reflect genuine change over time rather than a contradiction, and presenting both figures with attribution preserves accuracy and context for the reader.\nD. Flag the two figures as a contradiction between sources and ask the user to pick which one to believe. ❌ Incorrect.\nTreating a time-separated pair of measurements as an unresolved contradiction misreads a likely temporal difference as a conflict, pushing an unnecessary and potentially confusing decision onto the user.",
     "domain": "Context Management & Reliability"
+  },
+  {
+    "id": 184,
+    "question": "Your automated review calls the Claude API for each PR, using tool_use with a report_findings tool that returns a JSON array of finding objects (each with file_path, line_number, severity, category, and description). During testing on a large PR touching 30+ files, the response hits the max_tokens limit and the output is truncated mid-JSON, causing your pipeline's parser to fail. What is the most effective way to handle this?",
+    "choices": {
+      "A": "Increase max_tokens to the model's maximum and instruct Claude to keep finding descriptions under 50 words each.",
+      "B": "Switch from tool_use to prompting Claude to return findings as a markdown list.",
+      "C": "Split the review into multiple API calls that each analyze a subset of the changed files, then merge the resulting findings arrays.",
+      "D": "Add retry logic that detects truncated JSON and re-sends the request with instructions to report only critical and high severity findings."
+    },
+    "correct": "C",
+    "explanation": "C. Split the review into multiple API calls that each analyze a subset of the changed files, then merge the resulting findings arrays. ✅ Correct.\nBreaking the PR into smaller batches keeps each JSON response within token limits, preventing truncation and ensuring valid, parseable output.\nA. Increase max_tokens to the model's maximum and instruct Claude to keep finding descriptions under 50 words each. ❌ Incorrect.\nMay reduce truncation but does not guarantee the response will fit.\nB. Switch from tool_use to prompting Claude to return findings as a markdown list. ❌ Incorrect.\nLoses structured output and still does not solve token limit issues.\nD. Add retry logic that detects truncated JSON and re-sends the request with instructions to report only critical and high severity findings. ❌ Incorrect.\nProduces incomplete reviews by omitting lower-severity findings.",
+    "domain": "Tool Design & MCP Integration"
+  },
+  {
+    "id": 185,
+    "question": "You are setting up a non-interactive automated code review pipeline using Claude Code. You want Claude to analyze a pulled Git diff (git diff) against the main branch and apply a custom set of code review instructions. However, you notice that when you run the pipeline, Claude only looks at the raw diff text itself and completely stops using its file-reading or code navigation tools. As a result, it fails to inspect the broader codebase repository context, which is critical because the diff modifies a core function called by many other external modules. Which change to the CLI invocation will cause Claude to read related files in the repository while still successfully applying your custom review instructions?",
+    "choices": {
+      "A": "Replace --system-prompt with --append-system-prompt so your review instructions are added to Claude Code's default prompt instead of overwriting the built-in guidance for using file-reading and code navigation tools.",
+      "B": "Keep --system-prompt and add --allowedTools \"Read, Glob, Grep\" so that the non-interactive mode permits file system tools that it otherwise disables.",
+      "C": "Stop piping the diff via stdin and instead embed the diff contents inside the prompt string, so Claude Code treats the invocation as an agentic session rather than a stream-processing one.",
+      "D": "Remove --system-prompt entirely and place the review instructions in a CLAUDE.md file at the repo root, since --system-prompt is incompatible with tool use under -p."
+    },
+    "correct": "A",
+    "explanation": "A. Replace --system-prompt with --append-system-prompt so your review instructions are added to Claude Code's default prompt instead of overwriting the built-in guidance for using file-reading and code navigation tools. ✅ Correct.\n--system-prompt replaces Claude Code's default system instructions, which include guidance for using file-reading and code navigation tools. --append-system-prompt preserves those built-in instructions while adding your custom review rules, allowing Claude to inspect related repository files.\nB. Keep --system-prompt and add --allowedTools \"Read, Glob, Grep\". ❌ Incorrect.\nTools may be permitted, but replacing the default system prompt can remove the instructions that tell Claude to use them.\nC. Stop piping the diff via stdin and instead embed the diff contents inside the prompt string. ❌ Incorrect.\nChanging how the diff is provided does not restore the missing tool-use guidance.\nD. Remove --system-prompt entirely and place the review instructions in a CLAUDE.md file at the repo root. ❌ Incorrect.\n--system-prompt is not inherently incompatible with tool use; the issue is overwriting the default prompt.",
+    "domain": "Claude Code Configuration & Workflows"
+  },
+  {
+    "id": 186,
+    "question": "Your development team is using Claude Code to automate test generation across a large codebase. However, developers are frequently rejecting the generated test suites because Claude creates a high volume of trivial assertions or tests that merely maximize line coverage without validating meaningful behavioral logic or edge cases. You want to guide Claude to generate high-quality, production-ready tests directly without introducing high latency or modifying the core pipeline script. Which strategy best ensures that high-quality, meaningful tests are generated in the first place?",
+    "choices": {
+      "A": "Restrict test generation to directories where historical quality metrics show higher acceptance rates, disabling it for areas where generated tests consistently require heavy editing.",
+      "B": "Add post-generation coverage analysis that automatically filters out any generated test that doesn't increase line coverage beyond what existing tests provide.",
+      "C": "Document testing standards in CLAUDE.md including valuable test criteria, available fixtures with intended use cases, and examples distinguishing meaningful behavioral tests from trivial assertions.",
+      "D": "Implement a two-phase generation where a second Claude call scores each test against quality criteria, filtering out low-scoring tests before presenting results to developers."
+    },
+    "correct": "C",
+    "explanation": "C. Document testing standards in CLAUDE.md including valuable test criteria, available fixtures with intended use cases, and examples distinguishing meaningful behavioral tests from trivial assertions. ✅ Correct.\nCLAUDE.md provides persistent guidance that shapes test generation from the start. By documenting quality standards, fixtures, and examples of meaningful behavioral tests, Claude is more likely to generate production-ready tests that validate logic and edge cases instead of chasing line coverage.\nA. Restrict test generation to certain directories. ❌ Incorrect.\nLimits where tests are generated but does not improve test quality.\nB. Add post-generation coverage analysis. ❌ Incorrect.\nCoverage increases do not guarantee meaningful or high-quality tests.\nD. Implement a second scoring call. ❌ Incorrect.\nCan filter poor tests but adds latency and modifies the pipeline, which the requirements explicitly avoid.",
+    "domain": "Claude Code Configuration & Workflows"
+  },
+  {
+    "id": 187,
+    "question": "A developer uses Claude Code to refactor a function during their development session. Before committing, they ask the same Claude session to review the code for issues. Later, a separate automated CI review catches several bugs that the same-session review missed. What best explains this discrepancy?",
+    "choices": {
+      "A": "The CI environment has access to the full codebase context while the local session only sees the current file.",
+      "B": "The CI review uses a more specific prompt tailored for catching bugs, while the developer's request was too general.",
+      "C": "Claude retains context about its prior reasoning in the session, making it less likely to question its own decisions.",
+      "D": "The extended session length caused the context window to fill with conversation history, leaving less room for thorough analysis."
+    },
+    "correct": "C",
+    "explanation": "C. Claude retains context about its prior reasoning in the session, making it less likely to question its own decisions. ✅ Correct.\nWhen Claude reviews code in the same session where it created or refactored the code, it retains its earlier reasoning and assumptions. This can lead to confirmation bias, making it less likely to critically re-evaluate its own changes. A fresh CI review starts with no prior attachment to those decisions and may identify issues that the same-session review misses.\nA. The CI environment has access to the full codebase context while the local session only sees the current file. ❌ Incorrect.\nLocal sessions can also access the codebase using file-reading and navigation tools; this is not the primary reason for the discrepancy.\nB. The CI review uses a more specific prompt tailored for catching bugs. ❌ Incorrect.\nPrompt quality can affect results, but the key issue described is reviewing code within the same session that generated it.\nD. The extended session length caused the context window to fill with conversation history. ❌ Incorrect.\nLong conversations may affect context management, but this is not the main explanation for missing bugs that a fresh review catches.",
+    "domain": "Context Management & Reliability"
+  },
+  {
+    "id": 188,
+    "question": "Your automated reviewer uses a single prompt covering security issues, API design, and business logic correctness. Your evaluation suite shows strong recall for API design findings (82%) but poor recall for business logic edge cases in quiz scoring (34%). When you add few-shot examples of logic bugs to the prompt, logic recall improves to 41% but API design recall drops to 68%. How should you address this trade-off to improve detection across both categories?",
+    "choices": {
+      "A": "Split the review into separate focused prompts — one for security and API design, another for business logic — each with dedicated examples, then consolidate findings before posting.",
+      "B": "Replace the few-shot examples with a detailed checklist of specific logic edge cases to verify, such as division-by-zero in score calculations and boundary conditions in grading thresholds.",
+      "C": "Upgrade to a more capable model tier, since its stronger reasoning will handle both concern types in a single prompt and eliminate the recall trade-off."
+    },
+    "correct": "A",
+    "explanation": "A. Split the review into separate focused prompts — one for security and API design, another for business logic — each with dedicated examples, then consolidate findings before posting. ✅ Correct.\nCombining multiple review objectives in a single prompt creates context competition, where adding examples for one category can reduce performance in another. Separate, focused prompts allow each review type to have its own instructions and examples, improving recall across categories without sacrificing performance.\nB. Replace the few-shot examples with a detailed checklist of specific logic edge cases. ❌ Incorrect.\nA checklist may help business logic detection but still forces multiple concerns into one prompt and does not eliminate the trade-off.\nC. Upgrade to a more capable model tier. ❌ Incorrect.\nA stronger model may improve overall performance, but it does not guarantee removal of prompt interference between different review objectives.",
+    "domain": "Prompt Engineering & Structured Output"
+  },
+  {
+    "id": 189,
+    "question": "Your codebase exploration tool stores session IDs to allow engineers to continue investigations across work sessions. An engineer spent an hour yesterday analyzing a legacy authentication module, building context about its architecture and dependencies. They want to continue today. The session ID is valid, but version control shows 3 of the 12 files the agent previously read were modified overnight by a teammate's merge. What approach best balances efficiency and accuracy?",
+    "choices": {
+      "A": "Resume the session and immediately have the agent re-read all 12 previously analyzed files.",
+      "B": "Resume the session without informing the agent about the changed files.",
+      "C": "Resume the session and inform the agent which specific files changed for targeted re-analysis.",
+      "D": "Start a fresh session to ensure the agent works with current codebase state without stale assumptions."
+    },
+    "correct": "C",
+    "explanation": "C. Resume the session and inform the agent which specific files changed for targeted re-analysis. ✅ Correct.\nThis approach preserves the valuable context built during the previous session while ensuring accuracy by re-analyzing only the files that changed. It balances efficiency and correctness by avoiding unnecessary re-reading of unchanged files and preventing stale assumptions.\nA. Resume the session and immediately have the agent re-read all 12 previously analyzed files. ❌ Incorrect.\nEnsures freshness but is inefficient because nine files remain unchanged.\nB. Resume the session without informing the agent about the changed files. ❌ Incorrect.\nRisks relying on outdated assumptions and missing the impact of recent changes.\nD. Start a fresh session to ensure the agent works with current codebase state without stale assumptions. ❌ Incorrect.\nGuarantees fresh context but discards an hour of useful analysis and is unnecessarily inefficient.",
+    "domain": "Context Management & Reliability"
+  },
+  {
+    "id": 190,
+    "question": "An engineer sees an unfamiliar error message \"SYNC_CONFLICT: entity version mismatch detected\" in production logs but doesn't know which of the 12 services in the codebase generates it. They ask the agent to help locate the source code. What exploration approach will most efficiently find the responsible code?",
+    "choices": {
+      "A": "Use Grep to search for distinctive text from the error message (like \"SYNC_CONFLICT\" or \"entity version mismatch\"), then Read the matching files to understand context.",
+      "B": "Use Glob to find files in directories commonly associated with error handling (such as errors/, exceptions/, or handlers/) across services, then Read each matching file.",
+      "C": "Use Grep to find all files that import the project's error handling module, then Read those files to locate custom error definitions.",
+      "D": "Read the project's README and service configuration files to understand the architecture, then systematically Read source files in each service directory."
+    },
+    "correct": "A",
+    "explanation": "A. Use Grep to search for distinctive text from the error message, then Read the matching files to understand context. ✅ Correct.\nSearching for unique strings in the error message is the fastest and most direct way to locate the source code that generates the error. Grep quickly identifies matching files, and Read provides the surrounding context to determine which service is responsible.\nB. Use Glob to find files in error-related directories. ❌ Incorrect.\nError messages may not be defined in dedicated error directories, making this approach inefficient and incomplete.\nC. Use Grep to find all files that import the project's error handling module. ❌ Incorrect.\nMany files may import the error module, creating numerous irrelevant matches and increasing investigation time.\nD. Read the project's README and service configuration files first. ❌ Incorrect.\nProvides architectural context but is a slow, indirect approach for locating a specific error message.",
+    "domain": "Claude Code Configuration & Workflows"
+  },
+  {
+    "id": 191,
+    "question": "You've configured your Claude agent with three MCP servers: one for git operations, one for Jira ticket management, and one for documentation search. When a user asks the agent to \"create a branch for JIRA-123 and add documentation links to the ticket,\" how does the agent access tools across these servers?",
+    "choices": {
+      "A": "The agent queries each server sequentially to determine which handles each tool, routing calls based on tool name prefixes.",
+      "B": "Tools from all configured MCP servers are discovered at connection time and available simultaneously to the agent.",
+      "C": "You must specify which MCP server to use for each turn, and the agent can only access one server's tools at a time.",
+      "D": "The agent automatically selects the most relevant server based on the request and loads only that server's tools."
+    },
+    "correct": "B",
+    "explanation": "B. Tools from all configured MCP servers are discovered at connection time and available simultaneously to the agent. ✅ Correct.\nWhen multiple MCP servers are configured, the agent discovers and loads tools from all connected servers during initialization. It can then use tools across servers in a single request—for example, using the Git server to create a branch, the Jira server to update the ticket, and the Documentation server to retrieve links.\nA. The agent queries each server sequentially. ❌ Incorrect.\nThe agent does not probe servers one by one for every request or rely on tool name prefixes.\nC. You must specify which MCP server to use for each turn. ❌ Incorrect.\nThe agent can access tools from multiple servers simultaneously and does not require manual server selection per turn.\nD. The agent automatically selects one server and loads only that server's tools. ❌ Incorrect.\nTools from all configured servers remain available; the agent is not limited to a single server per request.",
+    "domain": "Tool Design & MCP Integration"
+  },
+  {
+    "id": 192,
+    "question": "Compliance requires that refunds exceeding $500 must automatically escalate to a human agent — this rule cannot be left to model discretion. Despite clear system prompt instructions, production logs show the agent occasionally processes high-value refunds directly (3% failure rate). How should you achieve guaranteed compliance?",
+    "choices": {
+      "A": "Modify the refund tool to return an error with message \"Amount exceeds policy limit, please escalate\" when the threshold is exceeded.",
+      "B": "Implement a hook to intercept tool calls when the refund amount exceeds $500, block it, and invoke human escalation.",
+      "C": "Strengthen the system prompt with emphatic language: \"CRITICAL POLICY! Refunds over $500 MUST trigger human escalation. NEVER process these directly!\"",
+      "D": "Add few-shot examples to the prompt showing correct escalation behavior at various refund amounts ($40, $500, $600)."
+    },
+    "correct": "B",
+    "explanation": "B. Implement a hook to intercept tool calls when the refund amount exceeds $500, block it, and invoke human escalation. ✅ Correct.\nCompliance requirements need deterministic enforcement, not model judgment. A hook that intercepts refund tool calls and blocks any refund over $500 guarantees that prohibited actions cannot occur and automatically triggers human escalation.\nA. Modify the refund tool to return an error message. ❌ Incorrect.\nAn error message depends on the model interpreting and handling it correctly and does not provide guaranteed enforcement.\nC. Strengthen the system prompt. ❌ Incorrect.\nPrompts improve behavior but cannot guarantee 100% compliance, as shown by the existing 3% failure rate.\nD. Add few-shot examples. ❌ Incorrect.\nExamples may improve adherence but remain probabilistic and cannot enforce a hard compliance rule.",
+    "domain": "Tool Design & MCP Integration"
+  },
+  {
+    "id": 193,
+    "question": "Production logs reveal inconsistent error handling: when a tool call fails, the agent sometimes retries 5 times (even if the target ID doesn't exist), sometimes escalates immediately (premature for temporary network issues), and sometimes adds a user-friendly explanation (inappropriate when the issue is a backend permission error). Investigation shows the MCP tool returns a uniform error response: {\"status\": \"error\", \"content\": {\"type\": \"Error\", \"message\": \"Operation failed.\"}}. The agent has no way to distinguish between error types. What's the most effective improvement?",
+    "choices": {
+      "A": "Implement retry logic with exponential backoff in your MCP server for all errors, returning to the agent only after retries are exhausted.",
+      "B": "Create an analyze_error MCP tool the agent calls after any failure to determine the error category and recommended action.",
+      "C": "Add few-shot examples to the system prompt demonstrating how to interpret error message patterns and select appropriate responses for each.",
+      "D": "Enhance error responses with structured metadata. Include error_category (transient/retriable/permission), reason, and a description of what caused the failure."
+    },
+    "correct": "D",
+    "explanation": "D. Enhance error responses with structured metadata. Include error_category (transient/retriable/permission), reason, and a description of what caused the failure. ✅ Correct.\nThe current error responses are generic (\"Operation failed.\"), giving the agent no information to distinguish between transient network issues, invalid tool IDs, or permission errors. Structured metadata enables the agent to take the appropriate action—retry, escalate, or inform the user—consistently and correctly.\nA. Implement retry logic with exponential backoff for all errors. ❌ Incorrect.\nNot all errors are retriable. Retrying permission or invalid-tool errors wastes time and can worsen behavior.\nB. Create an analyze_error MCP tool. ❌ Incorrect.\nAdds extra complexity and latency. The root problem is that the original errors lack sufficient information.\nC. Add few-shot examples to the system prompt. ❌ Incorrect.\nExamples cannot reliably infer error types from identical, generic error messages.",
+    "domain": "Tool Design & MCP Integration"
+  },
+  {
+    "id": 194,
+    "question": "After expanding the agent's MCP tools with delivery-specific capabilities (apply_promo_code, update_delivery_address, reconcile_delivery), the total tool count has grown from 4 to 7. Tool selection accuracy has dropped from 86% to 71%. Log analysis reveals the majority of errors involve the agent selecting between semantically overlapping tools — calling issue_credit when process_refund was correct, and calling check_delivery_status when lookup_order already returns the needed data. Which approach structurally eliminates the semantic overlap identified as the error source?",
+    "choices": {
+      "A": "Consolidate semantically overlapping tools – merge issue_credit and process_refund into a single handle_promotions tool with an action parameter, and fold check_delivery_status into lookup_order with an optional include_tracking flag.",
+      "B": "Enable the tool search tool with defer_loading on the six new tools, keeping the original two always loaded, so the agent dynamically discovers specialized tools only when needed.",
+      "C": "Add few-shot examples to the system prompt demonstrating correct selection for each ambiguous tool, such as showing when issue_credit applies versus when process_refund is appropriate.",
+      "D": "Split the tools across two sub-agents — a 'financial resolution' agent with issue_credit, process_refund, return_order, and apply_promo_code, and a 'delivery operations' agent with the remaining delivery tools — with a coordinating agent routing between them."
+    },
+    "correct": "A",
+    "explanation": "A. Consolidate semantically overlapping tools – merge issue_credit and process_refund into a single handle_promotions tool with an action parameter, and fold check_delivery_status into lookup_order with an optional include_tracking flag. ✅ Correct.\nThe primary issue is semantic overlap between tools. When multiple tools perform similar functions or return overlapping information, the agent struggles to choose correctly. Consolidating overlapping tools into unified interfaces removes ambiguity and structurally improves tool selection accuracy.\nB. Enable tool search with defer_loading. ❌ Incorrect.\nReduces the number of simultaneously loaded tools but does not eliminate the underlying semantic overlap.\nC. Add few-shot examples. ❌ Incorrect.\nExamples may improve selection temporarily, but they do not address the root cause of overlapping tool capabilities.\nD. Split tools across two sub-agents. ❌ Incorrect.\nDomain separation can help organization, but overlap still exists within domains (for example, issue_credit vs. process_refund), so ambiguity remains.",
+    "domain": "Tool Design & MCP Integration"
+  },
+  {
+    "id": 195,
+    "question": "You're implementing the escalation logic for when the agent should call a human. Your team proposes four different approaches for triggering escalation. Which approach will most reliably identify cases that genuinely require human intervention?",
+    "choices": {
+      "A": "Instruct the agent to escalate when the customer requests a human, when the issue requires policy exceptions, or when the agent cannot make meaningful progress.",
+      "B": "Configure the agent to escalate after three consecutive tool failures to resolve the customer's stated issue, ensuring a reasonable attempt before involving a human.",
+      "C": "Build a rules engine that maps specific issue types, customer segments, and product categories to escalation decisions, removing the need for model judgment calls.",
+      "D": "Implement sentiment analysis that monitors for frustration indicators (e.g., all-caps, repeated questions, exclamations) and triggers escalation when the frustration score exceeds a configured threshold."
+    },
+    "correct": "A",
+    "explanation": "A. Instruct the agent to escalate when the customer requests a human, when the issue requires policy exceptions, or when the agent cannot make meaningful progress. ✅ Correct.\nThis approach directly identifies situations that genuinely require human intervention. It covers customer preference, requests that need policy exceptions or discretionary decisions, and cases where the agent is unable to make meaningful progress. It provides a balanced and reliable escalation strategy.\nB. Configure the agent to escalate after three consecutive tool failures. ❌ Incorrect.\nTool failures do not always mean a human is needed, and some cases require immediate escalation without waiting for multiple failures.\nC. Build a rules engine that maps issue types, customer segments, and product categories to escalation decisions. ❌ Incorrect.\nA rigid rules engine is difficult to maintain and cannot capture all situations that require human judgment or customer preference.\nD. Implement sentiment analysis that triggers escalation based on frustration indicators. ❌ Incorrect.\nFrustration may indicate dissatisfaction, but it is not a reliable indicator that human intervention is necessary.",
+    "domain": "Agentic Architecture & Orchestration"
   }
 ]

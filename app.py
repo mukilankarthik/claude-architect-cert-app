@@ -15,6 +15,7 @@ import io
 import json
 import os
 import random
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -62,37 +63,107 @@ THEME_CSS = """
     --cca-card-border: rgba(127, 127, 127, 0.18);
     --cca-text-muted: rgba(127, 127, 127, 0.9);
 }
+
+@keyframes ccaFadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ccaGradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes ccaPop {
+    0% { transform: scale(0.97); }
+    60% { transform: scale(1.01); }
+    100% { transform: scale(1); }
+}
+
 .cca-hero {
-    background: linear-gradient(135deg, #1e293b 0%, var(--cca-accent) 100%);
-    border-radius: 14px;
-    padding: 1.6rem 2rem;
+    background: linear-gradient(120deg, #1e293b 0%, var(--cca-accent) 55%, #1e293b 100%);
+    background-size: 200% 200%;
+    animation: ccaGradientShift 10s ease infinite, ccaFadeInUp 0.5s ease both;
+    border-radius: 16px;
+    padding: 1.8rem 2.2rem;
     color: #fff !important;
     margin-bottom: 1.2rem;
+    box-shadow: 0 8px 24px rgba(13, 148, 136, 0.18);
 }
 .cca-hero h1, .cca-hero p { color: #fff !important; margin: 0; }
-.cca-hero p { opacity: 0.92; margin-top: 0.35rem; }
+.cca-hero p { opacity: 0.92; margin-top: 0.4rem; }
+
 .cca-card {
     background: var(--cca-card-bg);
     border: 1px solid var(--cca-card-border);
-    border-radius: 12px;
-    padding: 1.1rem 1.3rem;
-    margin: 0.5rem 0 1rem 0;
+    border-radius: 14px;
+    padding: 1.4rem 1.6rem;
+    margin: 0.6rem 0 1.3rem 0;
+    font-size: 1.08rem;
+    line-height: 1.65;
+    animation: ccaFadeInUp 0.35s ease both;
+    transition: border-color 0.2s ease;
 }
+.cca-card:hover { border-color: var(--cca-accent); }
+
 .cca-choice {
-    padding: 10px 14px;
-    margin: 6px 0;
-    border-radius: 10px;
+    padding: 13px 18px;
+    margin: 10px 0;
+    border-radius: 12px;
     border: 1px solid var(--cca-card-border);
     background: var(--cca-card-bg);
+    line-height: 1.55;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    animation: ccaFadeInUp 0.4s ease both;
+}
+.cca-choice:hover {
+    transform: translateX(3px);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+    border-color: var(--cca-accent);
 }
 .cca-choice-correct {
     background: var(--cca-correct-bg) !important;
     border: 1px solid var(--cca-correct-border) !important;
+    animation: ccaFadeInUp 0.4s ease both, ccaPop 0.4s ease both;
 }
 .cca-choice-wrong {
     background: var(--cca-wrong-bg) !important;
     border: 1px solid var(--cca-wrong-border) !important;
 }
+
+.cca-explain-block {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    margin: 10px 0;
+    border-radius: 12px;
+    border-left: 4px solid var(--cca-card-border);
+    background: var(--cca-card-bg);
+    animation: ccaFadeInUp 0.4s ease both;
+    transition: transform 0.15s ease;
+}
+.cca-explain-block:hover { transform: translateX(2px); }
+.cca-explain-block.cca-explain-correct {
+    border-left-color: var(--cca-correct-border);
+    background: var(--cca-correct-bg);
+}
+.cca-explain-block.cca-explain-wrong {
+    border-left-color: var(--cca-wrong-border);
+    background: rgba(127, 127, 127, 0.045);
+}
+.cca-explain-head {
+    flex: 0 0 auto;
+    font-weight: 700;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    padding-top: 1px;
+}
+.cca-explain-body {
+    flex: 1 1 auto;
+    line-height: 1.55;
+    opacity: 0.92;
+}
+
 .cca-badge {
     display: inline-block;
     font-size: 0.72rem;
@@ -114,16 +185,25 @@ THEME_CSS = """
     background: var(--cca-card-bg);
     border: 1px solid var(--cca-card-border);
     border-radius: 12px;
-    padding: 0.9rem 1rem;
+    padding: 1rem 1rem;
     text-align: center;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    animation: ccaFadeInUp 0.4s ease both;
 }
-.cca-stat-card .cca-stat-value { font-size: 1.6rem; font-weight: 700; }
-.cca-stat-card .cca-stat-label { font-size: 0.78rem; color: var(--cca-text-muted); }
+.cca-stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+    border-color: var(--cca-accent);
+}
+.cca-stat-card .cca-stat-value { font-size: 1.7rem; font-weight: 700; }
+.cca-stat-card .cca-stat-label { font-size: 0.78rem; color: var(--cca-text-muted); margin-top: 0.15rem; }
 .cca-banner {
-    border-radius: 12px;
-    padding: 1rem 1.3rem;
+    border-radius: 14px;
+    padding: 1.05rem 1.4rem;
     font-weight: 600;
-    margin: 0.6rem 0 1rem 0;
+    font-size: 1.05rem;
+    margin: 0.6rem 0 1.1rem 0;
+    animation: ccaFadeInUp 0.35s ease both, ccaPop 0.4s ease both;
 }
 .cca-banner-pass {
     background: var(--cca-correct-bg);
@@ -133,6 +213,51 @@ THEME_CSS = """
     background: var(--cca-wrong-bg);
     border: 1px solid var(--cca-wrong-border);
 }
+
+/* Buttons: consistent lift-on-hover across the whole app */
+.stButton > button {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(13, 148, 136, 0.18);
+    border-color: var(--cca-accent) !important;
+    color: var(--cca-accent) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.35);
+    filter: brightness(1.06);
+    color: #fff !important;
+}
+
+/* Radio choice rows (unanswered question) rendered as clickable cards */
+div[data-testid="stRadio"] > div { gap: 8px; }
+div[data-testid="stRadio"] label {
+    padding: 12px 16px !important;
+    border: 1px solid var(--cca-card-border);
+    border-radius: 12px;
+    width: 100%;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+div[data-testid="stRadio"] label:hover {
+    border-color: var(--cca-accent);
+    background: var(--cca-accent-soft);
+    transform: translateX(3px);
+}
+
+/* Progress bar: gradient fill instead of flat color */
+div[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, var(--cca-accent) 0%, #34d399 100%) !important;
+    transition: width 0.4s ease;
+}
+
+/* Expander: align with the card language instead of Streamlit's default box */
+div[data-testid="stExpander"] {
+    border: 1px solid var(--cca-card-border) !important;
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
 section[data-testid="stSidebar"] button {
     white-space: nowrap;
     padding-left: 0.25rem;
@@ -295,6 +420,58 @@ def render_choice_rows(q: dict, chosen: str | None, tag_chosen_answer: bool = Fa
                 f"<div class='cca-choice'>&nbsp;&nbsp;&nbsp;<strong>{letter}.</strong> {text}</div>",
                 unsafe_allow_html=True,
             )
+
+
+VERDICT_RE = re.compile(r"(✅\s*Correct\.?|❌\s*Incorrect\.?|\bCorrect\.|\bIncorrect\.)", re.I)
+
+
+def parse_explanation(explanation: str, choices: dict, correct_letter: str) -> list[dict] | None:
+    """Split a flat 'A. ...choice text... verdict. reasoning B. ...' explanation string
+    into one block per choice, keyed off where each choice's own text reappears in the
+    explanation. Returns None if the source text doesn't follow that convention, so the
+    caller can fall back to rendering it as-is."""
+    positions = []
+    for letter, text in choices.items():
+        prefix = re.sub(r"\s+", " ", text.strip())[:18]
+        pattern = re.escape(letter) + r"\.\s*" + re.escape(prefix)
+        m = re.search(pattern, explanation)
+        if m:
+            positions.append((m.start(), letter))
+    if len(positions) < len(choices):
+        return None
+
+    positions.sort()
+    segments = []
+    for i, (start, letter) in enumerate(positions):
+        end = positions[i + 1][0] if i + 1 < len(positions) else len(explanation)
+        chunk = explanation[start:end].strip()
+        vm = VERDICT_RE.search(chunk)
+        reasoning = chunk[vm.end():].strip() if vm else re.sub(rf"^{letter}\.\s*", "", chunk)
+        segments.append({
+            "letter": letter,
+            "is_correct": letter == correct_letter,
+            "reasoning": re.sub(r"\s+", " ", reasoning).strip() or "—",
+        })
+    segments.sort(key=lambda s: s["letter"])
+    return segments
+
+
+def render_explanation_block(q: dict) -> None:
+    """Render the explanation as one styled block per answer choice instead of a
+    single wall of concatenated text."""
+    segments = parse_explanation(q["explanation"], q["choices"], q["correct"])
+    if segments is None:
+        st.markdown(q["explanation"])
+        return
+    for seg in segments:
+        icon = "✅" if seg["is_correct"] else "❌"
+        cls = "cca-explain-correct" if seg["is_correct"] else "cca-explain-wrong"
+        st.markdown(
+            f"<div class='cca-explain-block {cls}'>"
+            f"<div class='cca-explain-head'>{icon} {seg['letter']}</div>"
+            f"<div class='cca-explain-body'>{seg['reasoning']}</div></div>",
+            unsafe_allow_html=True,
+        )
 
 
 def render_stat_cards(items: list[tuple]) -> None:
@@ -510,13 +687,16 @@ elif st.session_state.mode == "exam":
         render_choice_rows(q, chosen, tag_chosen_answer=False)
 
         if st.session_state.show_explanation:
-            st.divider()
-            result_label = "✅ Correct!" if chosen == q["correct"] else (
-                f"❌ Incorrect — correct answer: **{q['correct']}. {q['choices'][q['correct']]}**"
+            st.write("")
+            is_correct = chosen == q["correct"]
+            banner_class = "cca-banner-pass" if is_correct else "cca-banner-fail"
+            banner_text = (
+                "✅ Correct!" if is_correct
+                else f"❌ Incorrect — correct answer: <strong>{q['correct']}. {q['choices'][q['correct']]}</strong>"
             )
-            st.markdown(result_label)
+            st.markdown(f"<div class='cca-banner {banner_class}'>{banner_text}</div>", unsafe_allow_html=True)
             with st.expander("📖 Explanation", expanded=True):
-                st.markdown(q["explanation"])
+                render_explanation_block(q)
 
         st.write("")
         if idx < total - 1:
@@ -674,7 +854,7 @@ elif st.session_state.mode == "review":
 
     st.divider()
     with st.expander("📖 Explanation", expanded=True):
-        st.markdown(q["explanation"])
+        render_explanation_block(q)
 
     if idx < total - 1:
         st.write("")

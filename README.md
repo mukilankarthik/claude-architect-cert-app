@@ -8,7 +8,7 @@ Maintained by **Mukilan Karthikeyan** ([mukilankarthikeyan@gmail.com](mailto:muk
 
 ## Features
 
-- **Large practice question bank** — multiple-choice questions covering the full CCAR-F blueprint (Agentic Architecture, Tool Design & MCP, Claude Code Configuration, Prompt Engineering, Context Management), each with a detailed explanation for every answer choice
+- **Large practice question bank** — multiple-choice questions covering the full CCAR-F blueprint (Agentic Architecture, Tool Design & MCP, Claude Code Configuration, Prompt Engineering, Context Management), each with a detailed explanation for every answer choice, rendered as one color-coded block per option instead of a single wall of text
 - **Session checkpoint** — questions already covered in past sessions are automatically skipped so your team never repeats the same questions across launches
 - **Cohort-friendly** — set a team name, track progress on a shared screen with a live question navigator
 - **Configurable sessions** — choose whether to shuffle, and whether to show explanations immediately or on demand
