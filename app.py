@@ -17,11 +17,13 @@ import os
 import random
 import re
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
 import pdfplumber
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_pdf_viewer import pdf_viewer
 
 from ai_providers import PROVIDERS, AIProviderError, generate_text
@@ -36,6 +38,9 @@ IS_GIT_REPO = (BASE_DIR / ".git").exists()
 
 PASS_THRESHOLD_PCT = 70
 GENERATION_MAX_SOURCE_CHARS = 12_000  # keeps the prompt within a comfortable context budget across providers
+
+TIMED_EXAM_QUESTION_COUNT = 60  # mirrors the real CCA-F exam: 60 items in 120 minutes
+TIMED_EXAM_TIME_LIMIT_MIN = 120
 
 st.set_page_config(
     page_title="Claude Certified Architect - Study Guide",
@@ -128,6 +133,10 @@ THEME_CSS = """
 .cca-choice-wrong {
     background: var(--cca-wrong-bg) !important;
     border: 1px solid var(--cca-wrong-border) !important;
+}
+.cca-choice-picked {
+    background: var(--cca-accent-soft) !important;
+    border: 1px solid var(--cca-accent) !important;
 }
 
 .cca-explain-block {
@@ -373,6 +382,9 @@ def init_state() -> None:
         "session_id": None,
         "session_finished": False,
         "git_push_status": None,
+        "exam_type": "learning",   # "learning" or "timed"
+        "exam_deadline": None,     # epoch seconds when a timed exam auto-submits
+        "time_expired": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -400,21 +412,33 @@ def render_nav_header(key_prefix: str, idx: int, total: int, title_markdown: str
     return prev_clicked, next_clicked
 
 
-def render_choice_rows(q: dict, chosen: str | None, tag_chosen_answer: bool = False) -> None:
-    """Render every answer choice as a pill, highlighting the correct one and
-    (if wrong) the user's own pick."""
+def render_choice_rows(
+    q: dict, chosen: str | None, tag_chosen_answer: bool = False, reveal_correct: bool = True
+) -> None:
+    """Render every answer choice as a pill. When reveal_correct is True, highlights
+    the correct one and (if wrong) the user's own pick — used in Learning Mode and
+    Review, where feedback is immediate. Timed mock exams pass reveal_correct=False
+    so choices only show which one you picked, not whether it was right, matching a
+    real proctored exam where you don't get graded mid-test."""
     for letter, text in q["choices"].items():
-        if letter == q["correct"]:
+        if reveal_correct and letter == q["correct"]:
             st.markdown(
                 f"<div class='cca-choice cca-choice-correct'>✅ <strong>{letter}.</strong> {text}</div>",
                 unsafe_allow_html=True,
             )
         elif letter == chosen:
-            suffix = " <em>(your answer)</em>" if tag_chosen_answer else ""
-            st.markdown(
-                f"<div class='cca-choice cca-choice-wrong'>❌ <strong>{letter}.</strong> {text}{suffix}</div>",
-                unsafe_allow_html=True,
-            )
+            if reveal_correct:
+                suffix = " <em>(your answer)</em>" if tag_chosen_answer else ""
+                st.markdown(
+                    f"<div class='cca-choice cca-choice-wrong'>❌ <strong>{letter}.</strong> {text}{suffix}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div class='cca-choice cca-choice-picked'>☑️ <strong>{letter}.</strong> {text} "
+                    "<em>(your answer)</em></div>",
+                    unsafe_allow_html=True,
+                )
         else:
             st.markdown(
                 f"<div class='cca-choice'>&nbsp;&nbsp;&nbsp;<strong>{letter}.</strong> {text}</div>",
@@ -474,6 +498,64 @@ def render_explanation_block(q: dict) -> None:
         )
 
 
+def render_countdown_clock(deadline_epoch: float, total_seconds: int) -> None:
+    """A centered, self-ticking circular countdown clock for timed exams.
+    Ticks client-side every second via JS (no Streamlit rerun needed to stay
+    visually live); the actual time-limit enforcement happens server-side in
+    the exam view, which checks the same deadline on every rerun."""
+    deadline_ms = int(deadline_epoch * 1000)
+    total_ms = int(total_seconds * 1000)
+    components.html(
+        f"""
+        <div style="display:flex; justify-content:center; align-items:center; font-family:inherit;">
+          <div id="cca-clock-ring" style="width:130px; height:130px; border-radius:50%;
+               display:flex; align-items:center; justify-content:center;
+               background:conic-gradient(#0d9488 0%, rgba(127,127,127,0.18) 0);
+               transition: background 0.3s ease;">
+            <div style="width:104px; height:104px; border-radius:50%;
+                 background:var(--cca-clock-bg, #f8fafc);
+                 display:flex; flex-direction:column; align-items:center; justify-content:center;">
+              <div id="cca-clock-time" style="font-size:1.55rem; font-weight:700; color:var(--cca-clock-fg, #1e293b);
+                   font-variant-numeric: tabular-nums;">--:--</div>
+              <div style="font-size:0.65rem; letter-spacing:0.04em; text-transform:uppercase;
+                   opacity:0.6; color:var(--cca-clock-fg, #1e293b);">remaining</div>
+            </div>
+          </div>
+        </div>
+        <style>
+          @media (prefers-color-scheme: dark) {{
+            :root {{ --cca-clock-bg: #1e293b; --cca-clock-fg: #f1f5f9; }}
+          }}
+        </style>
+        <script>
+          const deadline = {deadline_ms};
+          const totalMs = {total_ms};
+          function tick() {{
+            const remaining = Math.max(0, deadline - Date.now());
+            const mins = Math.floor(remaining / 60000);
+            const secs = Math.floor((remaining % 60000) / 1000);
+            const pct = Math.max(0, Math.min(100, (remaining / totalMs) * 100));
+            const urgent = remaining < totalMs * 0.1;
+            const timeEl = document.getElementById('cca-clock-time');
+            const ringEl = document.getElementById('cca-clock-ring');
+            if (timeEl) {{
+              timeEl.textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+              timeEl.style.color = urgent ? '#dc2626' : '';
+            }}
+            if (ringEl) {{
+              const color = urgent ? '#dc2626' : '#0d9488';
+              ringEl.style.background = `conic-gradient(${{color}} ${{pct}}%, rgba(127,127,127,0.18) 0)`;
+            }}
+            if (remaining <= 0) clearInterval(timer);
+          }}
+          tick();
+          const timer = setInterval(tick, 1000);
+        </script>
+        """,
+        height=150,
+    )
+
+
 def render_stat_cards(items: list[tuple]) -> None:
     """items: list of (value, label) pairs, rendered as equal-width stat cards."""
     for col, (value, label) in zip(st.columns(len(items)), items):
@@ -486,21 +568,36 @@ def render_stat_cards(items: list[tuple]) -> None:
 # ─── Exam flow helpers ──────────────────────────────────────────────────────
 
 
-def start_exam() -> None:
-    unused, _ = get_unused_questions()
-    pool = unused if unused else ALL_QUESTIONS.copy()
-    if st.session_state.shuffle:
-        random.shuffle(pool)
+def start_exam(exam_type: str = "learning") -> None:
+    """exam_type "learning": untimed, draws from not-yet-covered questions, tracked
+    in the checkpoint. "timed": a fixed-size, fixed-duration mock exam that mirrors
+    the real CCA-F exam — always a fresh random draw from the full bank, and never
+    marks questions as covered so it doesn't interfere with Learning Mode's pool."""
+    if exam_type == "timed":
+        count = min(TIMED_EXAM_QUESTION_COUNT, len(ALL_QUESTIONS))
+        pool = random.sample(ALL_QUESTIONS, count)
+        st.session_state.exam_deadline = time.time() + TIMED_EXAM_TIME_LIMIT_MIN * 60
+    else:
+        unused, _ = get_unused_questions()
+        pool = unused if unused else ALL_QUESTIONS.copy()
+        if st.session_state.shuffle:
+            random.shuffle(pool)
+        st.session_state.exam_deadline = None
+
+    st.session_state.exam_type = exam_type
     st.session_state.questions = pool
     st.session_state.current_idx = 0
     st.session_state.answers = {}
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.session_state.session_finished = False
+    st.session_state.time_expired = False
     st.session_state.mode = "exam"
 
 
 def finish_session() -> None:
-    """Persist checkpoint + session log, then move to the results screen."""
+    """Persist checkpoint + session log, then move to the results screen. Timed
+    mock exams still get a session-log entry (useful history), but never call
+    save_checkpoint_entry, so they don't affect Learning Mode's covered-questions pool."""
     questions = st.session_state.questions
     answers = st.session_state.answers
     correct = sum(1 for idx, q in enumerate(questions) if answers.get(idx) == q["correct"])
@@ -514,6 +611,7 @@ def finish_session() -> None:
         "correct": correct,
         "total_answered": total_answered,
         "pct": pct,
+        "exam_type": st.session_state.exam_type,
     })
     build_and_store_session_log(st.session_state.session_id, answers, questions, st.session_state.cohort_name)
     st.session_state.git_push_status = None
@@ -573,6 +671,7 @@ with st.sidebar:
 
     elif st.session_state.mode == "exam":
         questions = st.session_state.questions
+        is_timed = st.session_state.exam_type == "timed"
         answered = len(st.session_state.answers)
         total = len(questions)
         st.metric("Answered", f"{answered}/{total}")
@@ -584,7 +683,10 @@ with st.sidebar:
         for i in range(total):
             col = cols[i % 4]
             if i in st.session_state.answers:
-                label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
+                if is_timed:
+                    label = "●"  # answered, but no correctness reveal mid-exam
+                else:
+                    label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
             elif i == st.session_state.current_idx:
                 label = f"**{i + 1}**"
             else:
@@ -594,7 +696,8 @@ with st.sidebar:
                 st.rerun()
 
         st.divider()
-        if st.button("🏁 Finish Session", use_container_width=True, type="primary"):
+        finish_label = "🏁 Submit Exam" if is_timed else "🏁 Finish Session"
+        if st.button(finish_label, use_container_width=True, type="primary"):
             finish_session()
             st.rerun()
 
@@ -634,18 +737,7 @@ if st.session_state.mode == "home":
         f"<p>Welcome, {st.session_state.cohort_name}!</p></div>",
         unsafe_allow_html=True,
     )
-    st.markdown(
-        """
-        This interactive study guide helps your team prepare for the **CCA-F** exam.
-
-        ### How it works
-        - Each session works through all remaining questions in sequence
-        - Select your answer and click **Submit** to confirm — you can't change it after
-        - Explanations are shown after each submission (toggle in sidebar)
-        - Hit **Finish Session** anytime — progress is saved immediately after every answer
-        - Questions answered in past sessions are automatically skipped
-        """
-    )
+    st.markdown("This interactive study guide helps your team prepare for the **CCA-F** exam.")
     st.divider()
 
     unused, used_count = get_unused_questions()
@@ -659,19 +751,55 @@ if st.session_state.mode == "home":
         st.warning("🔁 All questions have been covered! The next session will cycle back to the beginning. Reset the checkpoint to start fresh.")
 
     st.divider()
-    if st.button("🚀 Start Study Session", type="primary", use_container_width=True):
-        start_exam()
-        st.rerun()
+    col_learn, col_timed = st.columns(2)
+
+    with col_learn:
+        st.markdown(
+            "<div class='cca-card'><strong>📖 Learning Mode</strong><br>"
+            "Untimed. Works through questions you haven't covered yet, in sequence. "
+            "Select an answer, hit Submit, and (if enabled) see the explanation right away. "
+            "Progress is saved after every answer, and covered questions are skipped next time."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🚀 Start Learning Mode", type="primary", use_container_width=True):
+            start_exam("learning")
+            st.rerun()
+
+    with col_timed:
+        st.markdown(
+            "<div class='cca-card'><strong>⏱️ Timed Mock Exam</strong><br>"
+            f"{TIMED_EXAM_QUESTION_COUNT} questions in {TIMED_EXAM_TIME_LIMIT_MIN} minutes — same "
+            "question count and time limit as the real exam, every time. Answers aren't graded "
+            "until you submit, just like the real thing. Doesn't affect Learning Mode's progress."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("⏱️ Start Timed Mock Exam", use_container_width=True):
+            start_exam("timed")
+            st.rerun()
 
 # ─── EXAM ───────────────────────────────────────────────────────────────────
 
 elif st.session_state.mode == "exam":
+    is_timed = st.session_state.exam_type == "timed"
+
+    # Server-side enforcement: whatever the on-screen clock shows, this is what actually
+    # ends the exam — checked on every rerun (question nav, submit, etc.).
+    if is_timed and st.session_state.exam_deadline and time.time() >= st.session_state.exam_deadline:
+        st.session_state.time_expired = True
+        finish_session()
+        st.rerun()
+
     questions = st.session_state.questions
     idx = st.session_state.current_idx
     q = questions[idx]
     total = len(questions)
     already_answered = idx in st.session_state.answers
     chosen = st.session_state.answers.get(idx)
+
+    if is_timed:
+        render_countdown_clock(st.session_state.exam_deadline, TIMED_EXAM_TIME_LIMIT_MIN * 60)
 
     prev_clicked, next_clicked = render_nav_header("exam", idx, total, f"### Question {idx + 1} of {total}", q)
     if prev_clicked:
@@ -684,9 +812,11 @@ elif st.session_state.mode == "exam":
     st.markdown(f"<div class='cca-card'><strong>{q['question']}</strong></div>", unsafe_allow_html=True)
 
     if already_answered:
-        render_choice_rows(q, chosen, tag_chosen_answer=False)
+        render_choice_rows(q, chosen, tag_chosen_answer=False, reveal_correct=not is_timed)
 
-        if st.session_state.show_explanation:
+        if is_timed:
+            st.caption("☑️ Answer recorded — results and explanations are shown once you submit the exam.")
+        elif st.session_state.show_explanation:
             st.write("")
             is_correct = chosen == q["correct"]
             banner_class = "cca-banner-pass" if is_correct else "cca-banner-fail"
@@ -704,7 +834,8 @@ elif st.session_state.mode == "exam":
                 st.session_state.current_idx += 1
                 st.rerun()
         else:
-            st.info("You've reached the last question. Click **Finish Session** in the sidebar to save results.")
+            finish_label = "Submit Exam" if is_timed else "Finish Session"
+            st.info(f"You've reached the last question. Click **{finish_label}** in the sidebar to save results.")
 
     else:
         choice_labels = [f"{letter}. {text}" for letter, text in q["choices"].items()]
@@ -716,7 +847,8 @@ elif st.session_state.mode == "exam":
         if st.button("Submit Answer", type="primary", disabled=selected_label is None):
             selected_letter = choice_keys[choice_labels.index(selected_label)]
             st.session_state.answers[idx] = selected_letter
-            STORAGE.save_checkpoint_entry(q["id"])  # persisted immediately so a mid-session exit isn't lost
+            if not is_timed:
+                STORAGE.save_checkpoint_entry(q["id"])  # persisted immediately so a mid-session exit isn't lost
             st.rerun()
 
 # ─── RESULTS ────────────────────────────────────────────────────────────────
@@ -729,11 +861,15 @@ elif st.session_state.mode == "results":
     pct = int(correct / total_answered * 100) if total_answered else 0
     passed = pct >= PASS_THRESHOLD_PCT
 
+    is_timed_result = st.session_state.exam_type == "timed"
+    hero_title = "🕒 Mock Exam Results" if is_timed_result else "📊 Session Results"
     st.markdown(
-        f"<div class='cca-hero'><h1>📊 Session Results</h1>"
+        f"<div class='cca-hero'><h1>{hero_title}</h1>"
         f"<p>Team: {st.session_state.cohort_name}</p></div>",
         unsafe_allow_html=True,
     )
+    if st.session_state.time_expired:
+        st.warning("⏰ Time's up! Your exam was auto-submitted with whatever was answered when the clock hit zero.")
 
     render_stat_cards([
         (total_answered, "Answered"),
