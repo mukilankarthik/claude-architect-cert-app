@@ -11,6 +11,7 @@ makes checkpoint state survive a cloud deployment across restarts and
 multiple instances.
 """
 
+import csv
 import io
 import json
 import os
@@ -41,6 +42,17 @@ GENERATION_MAX_SOURCE_CHARS = 12_000  # keeps the prompt within a comfortable co
 
 TIMED_EXAM_QUESTION_COUNT = 60  # mirrors the real CCA-F exam: 60 items in 120 minutes
 TIMED_EXAM_TIME_LIMIT_MIN = 120
+
+# Official CCA-F domain weights (see the Exam Blueprint tab) — reused to compute
+# a weighted score estimate and flag focus areas on the Results page.
+DOMAIN_WEIGHTS = {
+    "Agentic Architecture & Orchestration": 0.27,
+    "Tool Design & MCP Integration": 0.18,
+    "Claude Code Configuration & Workflows": 0.20,
+    "Prompt Engineering & Structured Output": 0.20,
+    "Context Management & Reliability": 0.15,
+}
+FOCUS_AREA_THRESHOLD_PCT = 70  # domain score below this is called out as a focus area
 
 st.set_page_config(
     page_title="Claude Certified Architect - Study Guide",
@@ -301,6 +313,12 @@ def load_questions() -> list[dict]:
 @st.cache_data
 def load_reference_links() -> dict:
     with open(MATERIALS_DIR / "reference_links.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_cheat_sheets() -> dict:
+    with open(MATERIALS_DIR / "cheat_sheets.json", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -638,6 +656,7 @@ with st.sidebar:
     if st.session_state.mode == "home":
         st.subheader("⚙️ Session Settings")
         st.session_state.cohort_name = st.text_input("Cohort / Team Name", value=st.session_state.cohort_name)
+        st.caption("Studying solo? Just put your own name here — it's only used to label your session in the shared log.")
         st.session_state.shuffle = st.toggle("Shuffle questions", value=st.session_state.shuffle)
         st.session_state.show_explanation = st.toggle(
             "Show explanation after each answer", value=st.session_state.show_explanation
@@ -737,7 +756,21 @@ if st.session_state.mode == "home":
         f"<p>Welcome, {st.session_state.cohort_name}!</p></div>",
         unsafe_allow_html=True,
     )
-    st.markdown("This interactive study guide helps your team prepare for the **CCA-F** exam.")
+    st.markdown(
+        "This interactive study guide helps you prepare for the **CCA-F** exam — solo or as a cohort."
+    )
+    with st.expander("ℹ️ New here? How this app works"):
+        st.markdown(
+            "- **Studying alone?** Ignore the \"cohort\" language — just enter your name above and use "
+            "Learning Mode or the Timed Mock Exam like any other solo study tool.\n"
+            "- **Shared checkpoint:** progress (which questions have been covered) is tracked for everyone "
+            "using this deployment, not per-person — that's intentional for cohorts working through the "
+            "bank together, but it means a solo learner sharing a deployment with others will see questions "
+            "already covered by someone else. Run your own local copy (`poetry run streamlit run app.py`) "
+            "for a fully private, untouched question pool.\n"
+            "- **Materials tab** has source PDFs, a domain-by-domain cheat sheet, the exam blueprint, and "
+            "reference links — worth a look before diving into questions."
+        )
     st.divider()
 
     unused, used_count = get_unused_questions()
@@ -902,27 +935,54 @@ elif st.session_state.mode == "results":
         st.table([
             {
                 "Domain": dom,
+                "Exam Weight": f"{int(DOMAIN_WEIGHTS[dom] * 100)}%" if dom in DOMAIN_WEIGHTS else "—",
                 "Correct": f"{s['correct']}/{s['total']}",
                 "Score": f"{int(s['correct'] / s['total'] * 100)}%",
             }
             for dom, s in domain_stats.items()
         ])
 
+        # Weighted estimate: only meaningful once every official domain has at least
+        # one answered question, otherwise missing domains would silently drop out
+        # of the weighted average instead of being counted against it.
+        covered_weight = sum(DOMAIN_WEIGHTS.get(dom, 0) for dom in domain_stats)
+        if covered_weight > 0 and set(DOMAIN_WEIGHTS).issubset(domain_stats):
+            weighted_pct = sum(
+                DOMAIN_WEIGHTS[dom] * (s["correct"] / s["total"]) for dom, s in domain_stats.items()
+            ) * 100
+            st.caption(f"📐 Weighted score estimate (by official exam domain weights): **{int(weighted_pct)}%**")
+
+        focus_areas = [
+            dom for dom, s in domain_stats.items()
+            if (s["correct"] / s["total"]) * 100 < FOCUS_AREA_THRESHOLD_PCT
+        ]
+        if focus_areas:
+            st.warning("🎯 Focus areas (below " + f"{FOCUS_AREA_THRESHOLD_PCT}%" + "): " + ", ".join(focus_areas))
+
     st.subheader("Question Breakdown")
-    st.dataframe(
-        [
-            {
-                "Q#": i + 1,
-                "ID": q["id"],
-                "Status": "✅" if answers.get(i) == q["correct"] else ("❌" if answers.get(i) else "⬜ Skipped"),
-                "Your Answer": answers.get(i, "—"),
-                "Correct": q["correct"],
-                "Question": q["question"][:80] + "...",
-            }
-            for i, q in enumerate(questions)
-        ],
-        use_container_width=True,
-        hide_index=True,
+    breakdown_rows = [
+        {
+            "Q#": i + 1,
+            "ID": q["id"],
+            "Domain": q.get("domain", ""),
+            "Status": "✅" if answers.get(i) == q["correct"] else ("❌" if answers.get(i) else "⬜ Skipped"),
+            "Your Answer": answers.get(i, "—"),
+            "Correct": q["correct"],
+            "Question": q["question"][:80] + "...",
+        }
+        for i, q in enumerate(questions)
+    ]
+    st.dataframe(breakdown_rows, use_container_width=True, hide_index=True)
+
+    csv_buffer = io.StringIO()
+    csv_writer = csv.DictWriter(csv_buffer, fieldnames=list(breakdown_rows[0].keys()))
+    csv_writer.writeheader()
+    csv_writer.writerows(breakdown_rows)
+    st.download_button(
+        label="⬇️ Download results (CSV)",
+        data=csv_buffer.getvalue(),
+        file_name=f"cca-f-results-{st.session_state.session_id}.csv",
+        mime="text/csv",
     )
 
     st.divider()
@@ -1007,7 +1067,7 @@ elif st.session_state.mode == "materials":
 
     pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
     pdf_tab_names = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
-    all_tab_names = pdf_tab_names + ["📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions"]
+    all_tab_names = pdf_tab_names + ["📇 Cheat Sheets", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions"]
     tabs = st.tabs(all_tab_names)
 
     for tab, pdf_path in zip(tabs, pdfs):
@@ -1020,6 +1080,25 @@ elif st.session_state.mode == "materials":
                 mime="application/pdf",
                 key=f"dl_{pdf_path.stem}",
             )
+
+    with tabs[-4]:
+        st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")
+        cheat_sheets = load_cheat_sheets()
+        cheat_sheet_md_parts = []
+        for domain in cheat_sheets["domains"]:
+            st.subheader(f"{domain['title']} ({domain['weight']})")
+            bullet_lines = [f"- {point}" for point in domain["points"]]
+            st.markdown("\n".join(bullet_lines))
+            st.write("")
+            cheat_sheet_md_parts.append(
+                f"## {domain['title']} ({domain['weight']})\n" + "\n".join(bullet_lines)
+            )
+        st.download_button(
+            label="⬇️ Download Cheat Sheet (Markdown)",
+            data="# CCA-F Cheat Sheet\n\n" + "\n\n".join(cheat_sheet_md_parts),
+            file_name="cca-f-cheat-sheet.md",
+            mime="text/markdown",
+        )
 
     with tabs[-3]:
         st.markdown(

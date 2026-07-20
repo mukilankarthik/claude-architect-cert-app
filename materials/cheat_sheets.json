@@ -1,0 +1,69 @@
+{
+  "domains": [
+    {
+      "title": "Agentic Architecture & Orchestration",
+      "weight": "27%",
+      "points": [
+        "Coordinator/subagent pattern: a coordinator delegates to specialized subagents and explicitly passes outputs forward — subagents don't share memory or context automatically.",
+        "Parallelize independent subagent calls (e.g. web search + document analysis with no shared dependency) instead of invoking them sequentially, to cut latency.",
+        "Reflection / iterative loops: let the coordinator evaluate an agent's output for gaps and re-delegate with a targeted follow-up before moving on, rather than proceeding linearly.",
+        "Keep orchestration centralized in the coordinator — avoid letting subagents spawn their own subagents or share tools outside their specialization; it hurts observability and control.",
+        "For crash recovery, persist each agent's structured output to a known location so the coordinator can reload a manifest and re-inject only relevant state, instead of replaying full conversation logs.",
+        "Route simple queries around the full pipeline (query complexity routing) instead of always traversing every subagent.",
+        "Escalation and max-turn handling: define an explicit exit condition (resolve or hand off to a human) so an agentic loop can't exhaust its turn budget mid-task without a resolution."
+      ]
+    },
+    {
+      "title": "Tool Design & MCP Integration",
+      "weight": "18%",
+      "points": [
+        "Distinguish transient errors (timeouts, 503s — safe to retry) from permanent/business errors (validation failures, permission denied — retrying never helps); return distinct error types so the agent's retry logic can tell them apart.",
+        "Write instructive tool error messages: state what went wrong and what to try next, not just \"failed\".",
+        "Use dry-run / preview parameters for destructive or high-stakes tools, and enforce that the agent actually surfaces the preview to the user before executing for real.",
+        "As a tool library grows, tool selection accuracy drops — mitigate with a search_connectors-style discovery tool, or by narrowing which tools are exposed per subagent/context.",
+        "Prefer structured JSON output over free-text tool results when the caller needs to reliably parse specific fields downstream.",
+        "MCP server scope: project-level config for servers the whole team should share, user-level config for personal/experimental servers.",
+        "Tool descriptions should disambiguate similarly-named or similarly-behaved tools (e.g. archive vs delete) so the agent doesn't pick the wrong one under ambiguous phrasing."
+      ]
+    },
+    {
+      "title": "Claude Code Configuration & Workflows",
+      "weight": "20%",
+      "points": [
+        "CLAUDE.md conventions aren't always followed reliably from prose alone — conflicting or overly long CLAUDE.md files (500+ lines) degrade adherence; split into scoped nested CLAUDE.md files per subdirectory instead.",
+        "Slash commands (e.g. /migrate-component) are the way to share a reusable, versioned workflow across a team — store them in the project so they stay in sync as the team iterates.",
+        "Use grep/content-search tools for locating patterns across a large codebase (e.g. finding every eval() call) rather than reading files individually.",
+        "For big, unfamiliar changes, build understanding first (trace call paths, read related modules) before editing — especially across 15+ files or 8,000+ lines.",
+        "Session/context resumption: when picking up multi-day work, re-establish the relevant investigation context explicitly rather than assuming Claude Code remembers prior sessions.",
+        "Iterative refinement workflows suit ambiguous, open-ended, or performance-sensitive tasks (e.g. \"build a caching layer\") better than one-shot generation.",
+        "Automated code review prompts: broad single-prompt reviewers trade off recall vs. precision — split by concern (security, API design, business logic) or tune independently per concern to fix an under-performing category without hurting the others."
+      ]
+    },
+    {
+      "title": "Prompt Engineering & Structured Output",
+      "weight": "20%",
+      "points": [
+        "Strict JSON schemas eliminate syntax errors but not semantic errors — validation-retry loops must check semantic correctness (e.g. totals reconcile, enums cover real-world values), not just \"does it parse\".",
+        "Retry-with-error-feedback resolves most transient/format failures within a few attempts, but is ineffective against systematic gaps — e.g. a field the model has no way to know (unstated in the source), which needs a schema or workflow change, not more retries.",
+        "Enum fields should include an \"other\" / catch-all option when the real-world value space is wider than the sampled schema, to avoid validation failures on legitimate-but-unlisted values.",
+        "Nullable fields left unspecified in a source document should stay null — watch for the model fabricating plausible-but-incorrect values instead of returning null when information is genuinely absent.",
+        "Large tool/schema definitions competing with a large document for context budget degrades extraction accuracy as documents approach the context limit, even well under the max.",
+        "Batch APIs (delayed processing, discounted cost) are the right call when your SLA allows an hours-long window — but plan for the reprocessing path when a subset fails (e.g. context_length_exceeded on batch items).",
+        "Human review should be triaged by confidence score, but confirm that high-confidence errors are actually rare with data before fully automating away review at any given threshold."
+      ]
+    },
+    {
+      "title": "Context Management & Reliability",
+      "weight": "15%",
+      "points": [
+        "Long conversations degrade recall of specific details (names, numbers, earlier preferences) well before the context window is technically full — sliding-window truncation alone loses information rather than compressing it.",
+        "Persistent facts (identity, standing preferences, safety-critical details like allergies) need to be extracted and carried forward explicitly, separate from ephemeral back-and-forth that can be safely dropped.",
+        "System prompt adherence drifts over long conversations (10-30+ turns) — re-anchoring persona/instructions periodically, or summarizing+re-injecting core directives, counters this drift.",
+        "Tool call outputs (e.g. large JSON blobs from a lookup tool) can dominate context faster than the conversation itself — trim or summarize stale tool results once they're no longer needed.",
+        "When a live external event happens mid-conversation (e.g. a webhook), the assistant needs that update injected into context so its next response reflects current reality without the user having to state it.",
+        "Multi-session continuity (memory across days/weeks) requires deliberate persistence of key facts between sessions — new conversations don't automatically inherit prior session context.",
+        "Balance clarifying questions against action: too many questions before acting causes abandonment; too few causes acting on wrong assumptions — tune to the cost of guessing wrong for that specific task."
+      ]
+    }
+  ]
+}
