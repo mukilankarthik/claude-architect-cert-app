@@ -62,6 +62,13 @@ class LocalFileStorage:
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(log, f, ensure_ascii=False, indent=2)
 
+    def read_all_session_logs(self) -> list[dict]:
+        logs = []
+        for log_path in sorted(SESSION_LOGS_DIR.glob("*.json")):
+            with open(log_path, encoding="utf-8") as f:
+                logs.append(json.load(f))
+        return logs
+
 
 class PostgresStorage:
     """Shared backend for cloud hosting: checkpoint + session logs in Postgres.
@@ -159,6 +166,11 @@ class PostgresStorage:
                 [session_id, self._psycopg2.extras.Json(log)],
             )
             conn.commit()
+
+    def read_all_session_logs(self) -> list[dict]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT data FROM session_logs ORDER BY created_at")
+            return [row[0] for row in cur.fetchall()]
 
 
 def get_storage(database_url: str | None):

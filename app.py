@@ -360,6 +360,24 @@ def build_and_store_session_log(session_id: str, answers: dict, questions: list,
     STORAGE.write_session_log(session_id, log)
 
 
+def aggregate_domain_stats_from_logs(logs: list[dict]) -> dict:
+    """Correct/total per domain across every recorded session log (cohort-wide, not per-user)."""
+    id_to_domain = {q["id"]: q.get("domain") for q in ALL_QUESTIONS}
+    stats = {}
+    for log in logs:
+        for entry in log.get("questions", []):
+            if entry["result"] == "skipped":
+                continue
+            dom = id_to_domain.get(entry["id"])
+            if not dom:
+                continue
+            s = stats.setdefault(dom, {"correct": 0, "total": 0})
+            s["total"] += 1
+            if entry["result"] == "correct":
+                s["correct"] += 1
+    return stats
+
+
 def git_push_checkpoint(session_id: str) -> tuple[bool, str]:
     """Stage checkpoint + session log, commit and push. Only relevant for the
     local-file backend on a shared machine/VM — see README's cloud section
@@ -644,12 +662,15 @@ with st.sidebar:
     st.divider()
 
     if st.session_state.mode != "exam":
-        col_home, col_mat = st.columns(2)
+        col_home, col_mat, col_progress = st.columns(3)
         if col_home.button("🏠 Home", use_container_width=True, disabled=st.session_state.mode == "home"):
             st.session_state.mode = "home"
             st.rerun()
         if col_mat.button("📚 Materials", use_container_width=True, disabled=st.session_state.mode == "materials"):
             st.session_state.mode = "materials"
+            st.rerun()
+        if col_progress.button("📈 Progress", use_container_width=True, disabled=st.session_state.mode == "progress"):
+            st.session_state.mode = "progress"
             st.rerun()
         st.divider()
 
@@ -1245,3 +1266,59 @@ elif st.session_state.mode == "materials":
                     st.error(str(e))
                 except Exception as e:
                     st.error(f"Error: {e}")
+
+# ─── PROGRESS ───────────────────────────────────────────────────────────────
+
+elif st.session_state.mode == "progress":
+    st.title("📈 Progress")
+    st.caption(
+        "Aggregated across every recorded session on this deployment — this is cohort-wide history, "
+        "not a personal record tied to you individually (see the checkpoint model explained on Home)."
+    )
+    st.divider()
+
+    logs = STORAGE.read_all_session_logs()
+    if not logs:
+        st.info("No sessions recorded yet. Finish a Learning Mode or Timed Mock Exam session to see progress here.")
+    else:
+        render_stat_cards([
+            (len(logs), "Sessions Recorded"),
+            (sum(log.get("total_answered", 0) for log in logs), "Questions Answered"),
+            (f"{int(sum(log.get('correct', 0) for log in logs) / max(sum(log.get('total_answered', 0) for log in logs), 1) * 100)}%",
+             "Overall Accuracy"),
+        ])
+
+        st.write("")
+        domain_stats = aggregate_domain_stats_from_logs(logs)
+        if domain_stats:
+            st.subheader("Score by Domain (all-time)")
+            st.table([
+                {
+                    "Domain": dom,
+                    "Exam Weight": f"{int(DOMAIN_WEIGHTS[dom] * 100)}%" if dom in DOMAIN_WEIGHTS else "—",
+                    "Correct": f"{s['correct']}/{s['total']}",
+                    "Score": f"{int(s['correct'] / s['total'] * 100)}%",
+                }
+                for dom, s in domain_stats.items()
+            ])
+            focus_areas = [
+                dom for dom, s in domain_stats.items()
+                if (s["correct"] / s["total"]) * 100 < FOCUS_AREA_THRESHOLD_PCT
+            ]
+            if focus_areas:
+                st.warning("🎯 Focus areas (below " + f"{FOCUS_AREA_THRESHOLD_PCT}%" + "): " + ", ".join(focus_areas))
+        else:
+            st.caption("No domain-tagged questions have been answered yet.")
+
+        st.write("")
+        st.subheader("Score Trend by Session")
+        trend_rows = [
+            {
+                "Date": log.get("date", "?"),
+                "Cohort": log.get("cohort", "?"),
+                "Score %": int(log["correct"] / log["total_answered"] * 100) if log.get("total_answered") else 0,
+            }
+            for log in logs
+        ]
+        st.dataframe(trend_rows, use_container_width=True, hide_index=True)
+        st.line_chart({"Score %": [r["Score %"] for r in trend_rows]})
