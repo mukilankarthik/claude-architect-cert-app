@@ -335,10 +335,14 @@ def get_unused_questions() -> tuple[list[dict], int]:
     return unused, len(used)
 
 
-def build_and_store_session_log(session_id: str, answers: dict, questions: list, cohort: str) -> None:
+def build_and_store_session_log(
+    session_id: str, answers: dict, questions: list, cohort: str, learner_id: str = "", exam_type: str = "learning"
+) -> None:
     log = {
         "session_id": session_id,
         "cohort": cohort,
+        "learner_id": learner_id or None,  # self-declared, unverified — see the Learner ID field's help text
+        "exam_type": exam_type,
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "total_answered": len(answers),
         "correct": sum(1 for idx, q in enumerate(questions) if answers.get(idx) == q["correct"]),
@@ -358,6 +362,22 @@ def build_and_store_session_log(session_id: str, answers: dict, questions: list,
         ],
     }
     STORAGE.write_session_log(session_id, log)
+
+
+def compute_drill_pool(learner_id: str, logs: list[dict]) -> list[dict]:
+    """Questions this learner's most recent attempt got wrong — i.e. missed and not
+    since corrected. Ordered by log date, oldest first, so later attempts override
+    earlier ones for the same question id. Skipped answers don't count as an attempt."""
+    if not learner_id:
+        return []
+    last_result_by_id = {}
+    for log in sorted((l for l in logs if l.get("learner_id") == learner_id), key=lambda l: l.get("date", "")):
+        for entry in log.get("questions", []):
+            if entry["result"] == "skipped":
+                continue
+            last_result_by_id[entry["id"]] = entry["result"]
+    missed_ids = {qid for qid, result in last_result_by_id.items() if result == "incorrect"}
+    return [q for q in ALL_QUESTIONS if q["id"] in missed_ids]
 
 
 def aggregate_domain_stats_from_logs(logs: list[dict]) -> dict:
@@ -415,10 +435,11 @@ def init_state() -> None:
         "shuffle": True,
         "show_explanation": True,
         "cohort_name": "My Team",
+        "learner_id": "",          # self-declared, unverified — keys personal Drill Mode history
         "session_id": None,
         "session_finished": False,
         "git_push_status": None,
-        "exam_type": "learning",   # "learning" or "timed"
+        "exam_type": "learning",   # "learning", "timed", or "drill"
         "exam_deadline": None,     # epoch seconds when a timed exam auto-submits
         "time_expired": False,
     }
@@ -604,15 +625,22 @@ def render_stat_cards(items: list[tuple]) -> None:
 # ─── Exam flow helpers ──────────────────────────────────────────────────────
 
 
-def start_exam(exam_type: str = "learning") -> None:
+def start_exam(exam_type: str = "learning", drill_pool: list[dict] | None = None) -> None:
     """exam_type "learning": untimed, draws from not-yet-covered questions, tracked
     in the checkpoint. "timed": a fixed-size, fixed-duration mock exam that mirrors
     the real CCA-F exam — always a fresh random draw from the full bank, and never
-    marks questions as covered so it doesn't interfere with Learning Mode's pool."""
+    marks questions as covered so it doesn't interfere with Learning Mode's pool.
+    "drill": untimed, replays a specific learner's personally-missed questions
+    (see compute_drill_pool) — also never touches the shared checkpoint."""
     if exam_type == "timed":
         count = min(TIMED_EXAM_QUESTION_COUNT, len(ALL_QUESTIONS))
         pool = random.sample(ALL_QUESTIONS, count)
         st.session_state.exam_deadline = time.time() + TIMED_EXAM_TIME_LIMIT_MIN * 60
+    elif exam_type == "drill":
+        pool = list(drill_pool or [])
+        if st.session_state.shuffle:
+            random.shuffle(pool)
+        st.session_state.exam_deadline = None
     else:
         unused, _ = get_unused_questions()
         pool = unused if unused else ALL_QUESTIONS.copy()
@@ -632,8 +660,9 @@ def start_exam(exam_type: str = "learning") -> None:
 
 def finish_session() -> None:
     """Persist checkpoint + session log, then move to the results screen. Timed
-    mock exams still get a session-log entry (useful history), but never call
-    save_checkpoint_entry, so they don't affect Learning Mode's covered-questions pool."""
+    mock exams and Drill Mode sessions still get a session-log entry (useful history),
+    but never call save_checkpoint_entry, so they don't affect Learning Mode's
+    covered-questions pool."""
     questions = st.session_state.questions
     answers = st.session_state.answers
     correct = sum(1 for idx, q in enumerate(questions) if answers.get(idx) == q["correct"])
@@ -649,7 +678,10 @@ def finish_session() -> None:
         "pct": pct,
         "exam_type": st.session_state.exam_type,
     })
-    build_and_store_session_log(st.session_state.session_id, answers, questions, st.session_state.cohort_name)
+    build_and_store_session_log(
+        st.session_state.session_id, answers, questions, st.session_state.cohort_name,
+        learner_id=st.session_state.learner_id, exam_type=st.session_state.exam_type,
+    )
     st.session_state.git_push_status = None
     st.session_state.session_finished = True
     st.session_state.mode = "results"
@@ -678,6 +710,11 @@ with st.sidebar:
         st.subheader("⚙️ Session Settings")
         st.session_state.cohort_name = st.text_input("Cohort / Team Name", value=st.session_state.cohort_name)
         st.caption("Studying solo? Just put your own name here — it's only used to label your session in the shared log.")
+        st.session_state.learner_id = st.text_input(
+            "Learner ID (for Drill Mode)", value=st.session_state.learner_id,
+            help="Not a login — just a personal label. Type the same ID every visit to build up your own "
+            "missed-question history for Drill Mode. Leave blank if you don't want personal tracking.",
+        )
         st.session_state.shuffle = st.toggle("Shuffle questions", value=st.session_state.shuffle)
         st.session_state.show_explanation = st.toggle(
             "Show explanation after each answer", value=st.session_state.show_explanation
@@ -790,7 +827,9 @@ if st.session_state.mode == "home":
             "already covered by someone else. Run your own local copy (`poetry run streamlit run app.py`) "
             "for a fully private, untouched question pool.\n"
             "- **Materials tab** has source PDFs, a domain-by-domain cheat sheet, the exam blueprint, and "
-            "reference links — worth a look before diving into questions."
+            "reference links — worth a look before diving into questions.\n"
+            "- **Drill Mode** replays your personal missed questions, keyed by the Learner ID field in the "
+            "sidebar (not a login — just retype the same ID each visit to keep your history)."
         )
     st.divider()
 
@@ -805,7 +844,7 @@ if st.session_state.mode == "home":
         st.warning("🔁 All questions have been covered! The next session will cycle back to the beginning. Reset the checkpoint to start fresh.")
 
     st.divider()
-    col_learn, col_timed = st.columns(2)
+    col_learn, col_timed, col_drill = st.columns(3)
 
     with col_learn:
         st.markdown(
@@ -831,6 +870,27 @@ if st.session_state.mode == "home":
         )
         if st.button("⏱️ Start Timed Mock Exam", use_container_width=True):
             start_exam("timed")
+            st.rerun()
+
+    with col_drill:
+        learner_id = st.session_state.learner_id
+        drill_pool = compute_drill_pool(learner_id, STORAGE.read_all_session_logs()) if learner_id else []
+        st.markdown(
+            "<div class='cca-card'><strong>🎯 Drill Mode</strong><br>"
+            "Untimed replay of questions <em>you</em> personally got wrong last time, keyed by the "
+            "Learner ID in the sidebar. A question drops out once you answer it correctly again. "
+            "Doesn't affect the shared checkpoint."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if not learner_id:
+            st.caption("Set a Learner ID in the sidebar to enable Drill Mode.")
+        elif not drill_pool:
+            st.caption("No missed questions on record yet for this Learner ID — nothing to drill.")
+        if st.button(
+            f"🎯 Start Drill Mode ({len(drill_pool)})", use_container_width=True, disabled=not drill_pool
+        ):
+            start_exam("drill", drill_pool=drill_pool)
             st.rerun()
 
 # ─── EXAM ───────────────────────────────────────────────────────────────────
@@ -901,7 +961,7 @@ elif st.session_state.mode == "exam":
         if st.button("Submit Answer", type="primary", disabled=selected_label is None):
             selected_letter = choice_keys[choice_labels.index(selected_label)]
             st.session_state.answers[idx] = selected_letter
-            if not is_timed:
+            if st.session_state.exam_type == "learning":
                 STORAGE.save_checkpoint_entry(q["id"])  # persisted immediately so a mid-session exit isn't lost
             st.rerun()
 
@@ -916,7 +976,11 @@ elif st.session_state.mode == "results":
     passed = pct >= PASS_THRESHOLD_PCT
 
     is_timed_result = st.session_state.exam_type == "timed"
-    hero_title = "🕒 Mock Exam Results" if is_timed_result else "📊 Session Results"
+    hero_title = (
+        "🕒 Mock Exam Results" if is_timed_result
+        else "🎯 Drill Session Results" if st.session_state.exam_type == "drill"
+        else "📊 Session Results"
+    )
     st.markdown(
         f"<div class='cca-hero'><h1>{hero_title}</h1>"
         f"<p>Team: {st.session_state.cohort_name}</p></div>",
