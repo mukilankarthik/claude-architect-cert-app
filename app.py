@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pdfplumber
 import streamlit as st
-import streamlit.components.v1 as components
 from streamlit_pdf_viewer import pdf_viewer
 
 from ai_providers import PROVIDERS, AIProviderError, generate_text
@@ -470,9 +469,9 @@ def render_nav_header(key_prefix: str, idx: int, total: int, title_markdown: str
         badge_html += f"<span class='cca-badge cca-badge-muted'>Q#{q['id']}</span>"
         st.markdown(badge_html, unsafe_allow_html=True)
     with col_prev:
-        prev_clicked = st.button("◀ Prev", disabled=idx == 0, use_container_width=True, key=f"{key_prefix}_prev")
+        prev_clicked = st.button("◀ Prev", disabled=idx == 0, width='stretch', key=f"{key_prefix}_prev")
     with col_next:
-        next_clicked = st.button("Next ▶", disabled=idx == total - 1, use_container_width=True, key=f"{key_prefix}_next")
+        next_clicked = st.button("Next ▶", disabled=idx == total - 1, width='stretch', key=f"{key_prefix}_next")
     return prev_clicked, next_clicked
 
 
@@ -569,7 +568,7 @@ def render_countdown_clock(deadline_epoch: float, total_seconds: int) -> None:
     the exam view, which checks the same deadline on every rerun."""
     deadline_ms = int(deadline_epoch * 1000)
     total_ms = int(total_seconds * 1000)
-    components.html(
+    st.iframe(
         f"""
         <div style="display:flex; justify-content:center; align-items:center; font-family:inherit;">
           <div id="cca-clock-ring" style="width:130px; height:130px; border-radius:50%;
@@ -702,13 +701,13 @@ with st.sidebar:
 
     if st.session_state.mode != "exam":
         col_home, col_mat, col_progress = st.columns(3)
-        if col_home.button("🏠 Home", use_container_width=True, disabled=st.session_state.mode == "home"):
+        if col_home.button("🏠 Home", width='stretch', disabled=st.session_state.mode == "home"):
             st.session_state.mode = "home"
             st.rerun()
-        if col_mat.button("📚 Materials", use_container_width=True, disabled=st.session_state.mode == "materials"):
+        if col_mat.button("📚 Materials", width='stretch', disabled=st.session_state.mode == "materials"):
             st.session_state.mode = "materials"
             st.rerun()
-        if col_progress.button("📈 Progress", use_container_width=True, disabled=st.session_state.mode == "progress"):
+        if col_progress.button("📈 Progress", width='stretch', disabled=st.session_state.mode == "progress"):
             st.session_state.mode = "progress"
             st.rerun()
         st.divider()
@@ -743,7 +742,7 @@ with st.sidebar:
                     f"{last.get('cohort', '?')} · "
                     f"{last.get('correct', '?')}/{last.get('total_answered', '?')} correct"
                 )
-            if st.button("🔄 Reset Checkpoint", use_container_width=True):
+            if st.button("🔄 Reset Checkpoint", width='stretch'):
                 STORAGE.reset_checkpoint()
                 st.success("Checkpoint cleared.")
                 st.rerun()
@@ -775,21 +774,21 @@ with st.sidebar:
                 label = f"**{i + 1}**"
             else:
                 label = str(i + 1)
-            if col.button(label, key=f"nav_{i}", use_container_width=True):
+            if col.button(label, key=f"nav_{i}", width='stretch'):
                 st.session_state.current_idx = i
                 st.rerun()
 
         st.divider()
         finish_label = "🏁 Submit Exam" if is_timed else "🏁 Finish Session"
-        if st.button(finish_label, use_container_width=True, type="primary"):
+        if st.button(finish_label, width='stretch', type="primary"):
             finish_session()
             st.rerun()
 
     elif st.session_state.mode == "results":
-        if st.button("🔄 New Session", use_container_width=True, type="primary"):
+        if st.button("🔄 New Session", width='stretch', type="primary"):
             st.session_state.mode = "home"
             st.rerun()
-        if st.button("📖 Review Answers", use_container_width=True):
+        if st.button("📖 Review Answers", width='stretch'):
             st.session_state.mode = "review"
             st.session_state.current_idx = 0
             st.rerun()
@@ -805,11 +804,11 @@ with st.sidebar:
                 label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
             else:
                 label = "⬜"
-            if col.button(label, key=f"rnav_{i}", use_container_width=True):
+            if col.button(label, key=f"rnav_{i}", width='stretch'):
                 st.session_state.current_idx = i
                 st.rerun()
         st.divider()
-        if st.button("📊 Back to Results", use_container_width=True):
+        if st.button("📊 Back to Results", width='stretch'):
             st.session_state.mode = "results"
             st.rerun()
 
@@ -861,7 +860,7 @@ if st.session_state.mode == "home":
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("🚀 Start Learning Mode", type="primary", use_container_width=True):
+        if st.button("🚀 Start Learning Mode", type="primary", width='stretch'):
             start_exam("learning")
             st.rerun()
 
@@ -874,7 +873,7 @@ if st.session_state.mode == "home":
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("⏱️ Start Timed Mock Exam", use_container_width=True):
+        if st.button("⏱️ Start Timed Mock Exam", width='stretch'):
             start_exam("timed")
             st.rerun()
 
@@ -894,7 +893,7 @@ if st.session_state.mode == "home":
         elif not drill_pool:
             st.caption("No missed questions on record yet for this Learner ID — nothing to drill.")
         if st.button(
-            f"🎯 Start Drill Mode ({len(drill_pool)})", use_container_width=True, disabled=not drill_pool
+            f"🎯 Start Drill Mode ({len(drill_pool)})", width='stretch', disabled=not drill_pool
         ):
             start_exam("drill", drill_pool=drill_pool)
             st.rerun()
@@ -1063,7 +1062,7 @@ elif st.session_state.mode == "results":
         }
         for i, q in enumerate(questions)
     ]
-    st.dataframe(breakdown_rows, use_container_width=True, hide_index=True)
+    st.dataframe(breakdown_rows, width='stretch', hide_index=True)
 
     csv_buffer = io.StringIO()
     csv_writer = csv.DictWriter(csv_buffer, fieldnames=list(breakdown_rows[0].keys()))
@@ -1093,7 +1092,7 @@ elif st.session_state.mode == "results":
             f"`session_logs/{st.session_state.session_id}.json`."
         )
         if st.session_state.git_push_status is None:
-            if st.button("☁️ Push to Git", type="primary", use_container_width=True):
+            if st.button("☁️ Push to Git", type="primary", width='stretch'):
                 with st.spinner("Pushing to your git remote..."):
                     st.session_state.git_push_status = git_push_checkpoint(st.session_state.session_id)
                 st.rerun()
@@ -1104,13 +1103,13 @@ elif st.session_state.mode == "results":
                 st.success(msg)
             else:
                 st.warning(f"⚠️ Push failed: {msg}")
-                if st.button("🔄 Retry Push", use_container_width=True):
+                if st.button("🔄 Retry Push", width='stretch'):
                     with st.spinner("Retrying..."):
                         st.session_state.git_push_status = git_push_checkpoint(st.session_state.session_id)
                     st.rerun()
             st.caption("Team members should run `git pull` before the next session.")
 
-    if st.button("📖 Review All Answers with Explanations", type="primary", use_container_width=True):
+    if st.button("📖 Review All Answers with Explanations", type="primary", width='stretch'):
         st.session_state.mode = "review"
         st.session_state.current_idx = 0
         st.rerun()
@@ -1390,5 +1389,5 @@ elif st.session_state.mode == "progress":
             }
             for log in logs
         ]
-        st.dataframe(trend_rows, use_container_width=True, hide_index=True)
+        st.dataframe(trend_rows, width='stretch', hide_index=True)
         st.line_chart({"Score %": [r["Score %"] for r in trend_rows]})
