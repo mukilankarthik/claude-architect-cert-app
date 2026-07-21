@@ -284,10 +284,13 @@ section[data-testid="stSidebar"] button {
     padding-left: 0.25rem;
     padding-right: 0.25rem;
     min-width: 0;
-    height: auto;
+    height: 3.2rem !important;
     font-size: 0.82rem;
     line-height: 1.2;
     word-break: break-word;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
 }
 </style>
 """
