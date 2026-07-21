@@ -280,10 +280,14 @@ div[data-testid="stExpander"] {
 }
 
 section[data-testid="stSidebar"] button {
-    white-space: nowrap;
+    white-space: normal;
     padding-left: 0.25rem;
     padding-right: 0.25rem;
     min-width: 0;
+    height: auto;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    word-break: break-word;
 }
 </style>
 """
