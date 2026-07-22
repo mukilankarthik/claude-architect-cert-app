@@ -26,6 +26,11 @@ postgres = ["psycopg2-binary (>=2.9,<3.0)"]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.poetry]
+# This is a flat single-script Streamlit app, not an installable package —
+# there's no claude_architect_cert_app/ module for Poetry to install.
+package-mode = false
+
 [dependency-groups]
 dev = [
     "pytest (>=9.1.1,<10.0.0)",
