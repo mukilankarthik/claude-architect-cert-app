@@ -14,6 +14,7 @@ Call ``get_storage()`` to obtain the right backend for the current
 environment.
 """
 
+import copy
 import json
 from pathlib import Path
 
@@ -36,7 +37,7 @@ class LocalFileStorage:
         if CHECKPOINT_PATH.exists():
             with open(CHECKPOINT_PATH, encoding="utf-8") as f:
                 return json.load(f)
-        return dict(EMPTY_CHECKPOINT)
+        return copy.deepcopy(EMPTY_CHECKPOINT)
 
     def _write_checkpoint(self, data: dict) -> None:
         with open(CHECKPOINT_PATH, "w", encoding="utf-8") as f:
@@ -127,7 +128,7 @@ class PostgresStorage:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT data FROM checkpoint_state WHERE id = 1")
             row = cur.fetchone()
-            return row[0] if row else dict(EMPTY_CHECKPOINT)
+            return row[0] if row else copy.deepcopy(EMPTY_CHECKPOINT)
 
     def _write_checkpoint(self, data: dict) -> None:
         with self._connect() as conn, conn.cursor() as cur:

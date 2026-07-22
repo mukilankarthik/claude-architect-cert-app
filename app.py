@@ -721,9 +721,12 @@ with st.sidebar:
             help="Not a login — just a personal label. Type the same ID every visit to build up your own "
             "missed-question history for Drill Mode. Leave blank if you don't want personal tracking.",
         )
-        st.session_state.shuffle = st.toggle("Shuffle questions", value=st.session_state.shuffle)
+        st.session_state.shuffle = st.toggle(
+            "Shuffle questions", value=st.session_state.shuffle, key="toggle_shuffle"
+        )
         st.session_state.show_explanation = st.toggle(
-            "Show explanation after each answer", value=st.session_state.show_explanation
+            "Show explanation after each answer", value=st.session_state.show_explanation,
+            key="toggle_show_explanation",
         )
         st.divider()
 
