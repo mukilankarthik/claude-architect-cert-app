@@ -195,6 +195,22 @@ THEME_CSS = """
 }
 .cca-card:hover { border-color: var(--cca-accent); }
 
+/* Equal-height cards across a row of st.columns(): Streamlit already stretches each
+   stColumn to the tallest column's height, but a card's own box only sizes to its
+   text, leaving the button below it at a different vertical position per column.
+   Force the flex chain from the card's element-container down to the card itself
+   to grow and fill that available height, so every card box (and the button under
+   it) lines up regardless of how much text it holds. */
+div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-card) {
+    flex: 1;
+}
+div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-card) > div[data-testid="stMarkdown"],
+div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-card) > div[data-testid="stMarkdown"] > div,
+div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-card) [data-testid="stMarkdownContainer"] {
+    height: 100%;
+}
+.cca-card { height: 100%; width: 100%; box-sizing: border-box; }
+
 .cca-choice {
     padding: 13px 18px;
     margin: 10px 0;
@@ -406,6 +422,61 @@ def load_cheat_sheets() -> dict:
 def load_claude_code_reference() -> dict:
     with open(MATERIALS_DIR / "claude_code_reference.json", encoding="utf-8") as f:
         return json.load(f)
+
+
+def get_materials_groups() -> list[dict]:
+    """Materials sections grouped for the browsable gallery landing page (see the
+    "materials" mode below). Grouping puts the highest-value, quickest-to-scan
+    content (Quick Reference) first — full PDFs are longer reads and go second."""
+    pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
+    pdf_items = [
+        {
+            "label": f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}",
+            "icon": "📄",
+            "title": p.stem.replace("-", " ").replace("_", " ").title(),
+            "description": "Full source PDF — viewable inline or downloadable.",
+        }
+        for p in pdfs
+    ]
+    return [
+        {
+            "title": "🧭 Quick Reference",
+            "description": "Condensed, exam-ready references — start here if you only have a few minutes.",
+            "items": [
+                {
+                    "label": "📇 Cheat Sheets", "icon": "📇", "title": "Cheat Sheets",
+                    "description": "Condensed key facts per domain — a fast pass before the exam.",
+                },
+                {
+                    "label": "⌨️ Claude Code Reference", "icon": "⌨️", "title": "Claude Code Reference",
+                    "description": "Slash commands, keyboard shortcuts, config files, hooks, and CLAUDE.md conventions.",
+                },
+                {
+                    "label": "📋 Exam Blueprint", "icon": "📋", "title": "Exam Blueprint",
+                    "description": "Domain weights, scoring details, and the 6 named exam scenarios.",
+                },
+                {
+                    "label": "🔗 Reference Links", "icon": "🔗", "title": "Reference Links",
+                    "description": "Curated external docs and guides worth reading alongside this app.",
+                },
+            ],
+        },
+        {
+            "title": "📄 Exam Guides",
+            "description": "Full source PDFs the question bank and cheat sheets are drawn from.",
+            "items": pdf_items,
+        },
+        {
+            "title": "🤖 Tools",
+            "description": "Expand the question bank from your own material.",
+            "items": [
+                {
+                    "label": "🤖 Generate Questions", "icon": "🤖", "title": "Generate Questions",
+                    "description": "Upload a PDF or paste text to generate new practice questions with your own AI provider key.",
+                },
+            ],
+        },
+    ]
 
 
 ALL_QUESTIONS = load_questions()
@@ -793,6 +864,7 @@ def init_state() -> None:
         "exam_deadline": None,     # epoch seconds when a timed exam auto-submits
         "time_expired": False,
         "scenario_random_draw": random.sample([s["name"] for s in SCENARIOS], k=4),
+        "materials_view": "gallery",   # "gallery" (browsable landing page) or "detail" (one section)
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1054,6 +1126,7 @@ with st.sidebar:
             st.rerun()
         if col_mat.button("📚 Materials", width='stretch', disabled=st.session_state.mode == "materials"):
             st.session_state.mode = "materials"
+            st.session_state.materials_view = "gallery"
             st.rerun()
         if col_progress.button("📈 Progress", width='stretch', disabled=st.session_state.mode == "progress"):
             st.session_state.mode = "progress"
@@ -1104,16 +1177,32 @@ with st.sidebar:
         st.info(f"📚 {len(ALL_QUESTIONS)} total · {len(unused)} remaining")
 
     elif st.session_state.mode == "materials":
-        st.subheader("📚 Section")
-        pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
-        pdf_labels = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
-        materials_section_options = pdf_labels + [
-            "📇 Cheat Sheets", "⌨️ Claude Code Reference", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions",
+        st.subheader("📚 Jump to a section")
+        materials_section_options = [
+            item["label"] for group in get_materials_groups() for item in group["items"]
         ]
+        # Keep the widget's own state in sync with materials_section changes made
+        # elsewhere (e.g. a gallery card click) — only legal to assign this *before*
+        # the keyed widget below is instantiated for this run, not after.
+        current_section = st.session_state.get("materials_section")
+        if current_section in materials_section_options and (
+            st.session_state.get("materials_section_widget") != current_section
+        ):
+            st.session_state.materials_section_widget = current_section
+
+        def _jump_to_materials_section():
+            st.session_state.materials_section = st.session_state.materials_section_widget
+            st.session_state.materials_view = "detail"
+
         st.selectbox(
             "Choose what to view", options=materials_section_options,
-            key="materials_section", label_visibility="collapsed",
+            key="materials_section_widget", label_visibility="collapsed",
+            on_change=_jump_to_materials_section,
         )
+        if st.session_state.materials_view == "detail":
+            if st.button("⬅ Back to overview", width='stretch'):
+                st.session_state.materials_view = "gallery"
+                st.rerun()
 
     elif st.session_state.mode == "exam":
         questions = st.session_state.questions
@@ -1569,217 +1658,241 @@ elif st.session_state.mode == "materials":
     st.caption("Reference material for the Claude Certified Architect – Foundations exam")
     st.divider()
 
-    pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
-    pdf_labels = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
-    pdf_by_label = dict(zip(pdf_labels, pdfs))
-    materials_section_options = pdf_labels + [
-        "📇 Cheat Sheets", "⌨️ Claude Code Reference", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions",
-    ]
+    materials_groups = get_materials_groups()
+    pdf_group = next(g for g in materials_groups if g["title"] == "📄 Exam Guides")
+    pdf_by_label = dict(zip((item["label"] for item in pdf_group["items"]), sorted(MATERIALS_DIR.glob("*.pdf"))))
+    all_labels = [item["label"] for group in materials_groups for item in group["items"]]
     section = st.session_state.get("materials_section")
-    if section not in materials_section_options:
-        section = materials_section_options[0]
+    if section not in all_labels:
+        section = all_labels[0]
 
-    if section in pdf_by_label:
-        pdf_path = pdf_by_label[section]
-        pdf_viewer(str(pdf_path), width=700, height=800)
-        st.download_button(
-            label="⬇️ Download PDF",
-            data=pdf_path.read_bytes(),
-            file_name=pdf_path.name,
-            mime="application/pdf",
-            key=f"dl_{pdf_path.stem}",
-        )
-
-    elif section == "📇 Cheat Sheets":
-        st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")
-        cheat_sheets = load_cheat_sheets()
-        cheat_sheet_md_parts = []
-        for domain in cheat_sheets["domains"]:
-            st.subheader(f"{domain['title']} ({domain['weight']})")
-            bullet_lines = [f"- {point}" for point in domain["points"]]
-            st.markdown("\n".join(bullet_lines))
+    if st.session_state.materials_view == "gallery":
+        for group in materials_groups:
+            if not group["items"]:
+                continue
+            st.subheader(group["title"])
+            st.caption(group["description"])
+            cols = st.columns(min(len(group["items"]), 4))
+            for i, item in enumerate(group["items"]):
+                with cols[i % len(cols)]:
+                    st.markdown(
+                        f"<div class='cca-card'><strong>{item['icon']} {item['title']}</strong><br>"
+                        f"{item['description']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Open →", key=f"materials_open_{item['label']}", width='stretch'):
+                        st.session_state.materials_section = item["label"]
+                        st.session_state.materials_view = "detail"
+                        st.rerun()
             st.write("")
-            cheat_sheet_md_parts.append(
-                f"## {domain['title']} ({domain['weight']})\n" + "\n".join(bullet_lines)
-            )
-        st.download_button(
-            label="⬇️ Download Cheat Sheet (Markdown)",
-            data="# CCA-F Cheat Sheet\n\n" + "\n\n".join(cheat_sheet_md_parts),
-            file_name="cca-f-cheat-sheet.md",
-            mime="text/markdown",
-        )
 
-    elif section == "⌨️ Claude Code Reference":
-        st.caption(
-            "Operational reference for the Claude Code CLI — slash commands, keyboard shortcuts, config files, "
-            "hooks, and CLAUDE.md conventions. Useful for the exam's Claude Code Configuration & Workflows "
-            "domain, and as a working reference on the job."
-        )
-        cc_ref = load_claude_code_reference()
-        cc_md_parts = []
-        for cc_section in cc_ref["sections"]:
-            st.subheader(f"{cc_section['icon']} {cc_section['title']}")
-            if cc_section["kind"] == "table":
-                st.table([dict(zip(cc_section["columns"], row)) for row in cc_section["rows"]])
-                md_table = (
-                    "| " + " | ".join(cc_section["columns"]) + " |\n"
-                    + "| " + " | ".join(["---"] * len(cc_section["columns"])) + " |\n"
-                    + "\n".join("| " + " | ".join(row) + " |" for row in cc_section["rows"])
-                )
-                cc_md_parts.append(f"## {cc_section['title']}\n{md_table}")
-            else:
-                bullet_lines = [f"- {point}" for point in cc_section["points"]]
+    else:
+        if st.button("⬅ Back to overview"):
+            st.session_state.materials_view = "gallery"
+            st.rerun()
+        st.write("")
+
+        if section in pdf_by_label:
+            pdf_path = pdf_by_label[section]
+            pdf_viewer(str(pdf_path), width=700, height=800)
+            st.download_button(
+                label="⬇️ Download PDF",
+                data=pdf_path.read_bytes(),
+                file_name=pdf_path.name,
+                mime="application/pdf",
+                key=f"dl_{pdf_path.stem}",
+            )
+
+        elif section == "📇 Cheat Sheets":
+            st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")
+            cheat_sheets = load_cheat_sheets()
+            cheat_sheet_md_parts = []
+            for domain in cheat_sheets["domains"]:
+                st.subheader(f"{domain['title']} ({domain['weight']})")
+                bullet_lines = [f"- {point}" for point in domain["points"]]
                 st.markdown("\n".join(bullet_lines))
-                cc_md_parts.append(f"## {cc_section['title']}\n" + "\n".join(bullet_lines))
-            st.write("")
-        st.download_button(
-            label="⬇️ Download Claude Code Reference (Markdown)",
-            data="# Claude Code Reference\n\n" + "\n\n".join(cc_md_parts),
-            file_name="claude-code-reference.md",
-            mime="text/markdown",
-        )
-
-    elif section == "📋 Exam Blueprint":
-        st.markdown(
-            """
-            ### CCAR-F Exam Blueprint
-            *Domains and their approximate weight on the 60-item exam:*
-            """
-        )
-        st.table([
-            {"Domain": "1. Agentic Architecture & Orchestration", "Weight": "27%"},
-            {"Domain": "2. Tool Design & MCP Integration", "Weight": "18%"},
-            {"Domain": "3. Claude Code Configuration & Workflows", "Weight": "20%"},
-            {"Domain": "4. Prompt Engineering & Structured Output", "Weight": "20%"},
-            {"Domain": "5. Context Management & Reliability", "Weight": "15%"},
-        ])
-        render_stat_cards([
-            ("60", "Items"),
-            ("120 min", "Time limit"),
-            ("720 / 1000", "Passing scaled score"),
-        ])
-        st.write("")
-        st.markdown(
-            "**Exam scenarios** — 4 of the following 6 scenarios appear on any given exam. "
-            "Practice any of them (or a random draw of 4) from Home under Scenario Practice:"
-        )
-        st.markdown(
-            "\n".join(f"{i}. **{s['name']}** — {s['summary']}" for i, s in enumerate(SCENARIOS, start=1))
-        )
-
-    elif section == "🔗 Reference Links":
-        ref = load_reference_links()
-        for ref_section in ref["sections"]:
-            st.subheader(ref_section["title"])
-            for item in ref_section["items"]:
-                st.markdown(f"**[{item['label']}]({item['url']})**  \n{item['description']}")
-            st.write("")
-
-    elif section == "🤖 Generate Questions":
-        st.subheader("🤖 Generate Questions from a Document")
-        st.markdown(
-            "Upload any PDF or paste text and your chosen AI provider will generate multiple-choice "
-            "questions in the same format as the exam bank. Generated questions are added directly to the pool."
-        )
-        st.divider()
-
-        provider_key = st.selectbox(
-            "AI Provider",
-            options=list(PROVIDERS.keys()),
-            format_func=lambda k: PROVIDERS[k]["label"],
-        )
-        provider = PROVIDERS[provider_key]
-
-        col_key, col_model = st.columns([2, 1])
-        api_key = col_key.text_input(
-            f"{provider['label']} API Key",
-            type="password",
-            value=os.environ.get(provider["env_var"], ""),
-            help=f"{provider['key_help']}. Never stored — only used for this session.",
-        )
-        model = col_model.text_input("Model", value=provider["default_model"])
-
-        st.write("")
-        input_tab_upload, input_tab_text = st.tabs(["📎 Upload PDF", "📝 Paste Text"])
-        source_text = ""
-
-        with input_tab_upload:
-            uploaded = st.file_uploader("Upload a PDF", type="pdf")
-            if uploaded:
-                with pdfplumber.open(io.BytesIO(uploaded.read())) as pdf:
-                    source_text = "\n\n".join(p.extract_text() for p in pdf.pages if p.extract_text())
-                st.success(f"Extracted {len(source_text):,} characters from {uploaded.name}")
-
-        with input_tab_text:
-            pasted = st.text_area("Paste document text here", height=200)
-            if pasted.strip():
-                source_text = pasted.strip()
-
-        num_to_generate = st.slider("Number of questions to generate", min_value=3, max_value=20, value=5)
-
-        st.write("")
-        generate_clicked = st.button("✨ Generate Questions", type="primary", disabled=not api_key or not source_text)
-
-        if not api_key:
-            st.caption(f"Enter your {provider['label']} API key above to enable generation.")
-        elif not source_text:
-            st.caption("Upload a PDF or paste text above to enable generation.")
-
-        if generate_clicked and api_key and source_text:
-            system_prompt = (
-                "You are an expert exam question writer specializing in technical certification exams. "
-                "Given a document, generate multiple-choice questions that test deep understanding of the content. "
-                "Each question must have exactly 4 choices (A, B, C, D), one correct answer, and a detailed explanation "
-                "that explains why the correct answer is right AND why each wrong answer is incorrect. "
-                "Respond ONLY with a valid JSON array — no markdown, no commentary."
-            )
-            user_prompt = (
-                f"Generate {num_to_generate} multiple-choice questions from the following document.\n\n"
-                "Return a JSON array where each element has this exact structure:\n"
-                '{"question": "...", "choices": {"A": "...", "B": "...", "C": "...", "D": "..."}, '
-                '"correct": "A", "explanation": "..."}\n\n'
-                f"Document:\n{source_text[:GENERATION_MAX_SOURCE_CHARS]}"
+                st.write("")
+                cheat_sheet_md_parts.append(
+                    f"## {domain['title']} ({domain['weight']})\n" + "\n".join(bullet_lines)
+                )
+            st.download_button(
+                label="⬇️ Download Cheat Sheet (Markdown)",
+                data="# CCA-F Cheat Sheet\n\n" + "\n\n".join(cheat_sheet_md_parts),
+                file_name="cca-f-cheat-sheet.md",
+                mime="text/markdown",
             )
 
-            with st.spinner(f"Generating {num_to_generate} questions with {provider['label']}..."):
-                try:
-                    raw = generate_text(provider_key, api_key, model, system_prompt, user_prompt).strip()
-                    if raw.startswith("```"):
-                        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        elif section == "⌨️ Claude Code Reference":
+            st.caption(
+                "Operational reference for the Claude Code CLI — slash commands, keyboard shortcuts, config files, "
+                "hooks, and CLAUDE.md conventions. Useful for the exam's Claude Code Configuration & Workflows "
+                "domain, and as a working reference on the job."
+            )
+            cc_ref = load_claude_code_reference()
+            cc_md_parts = []
+            for cc_section in cc_ref["sections"]:
+                st.subheader(f"{cc_section['icon']} {cc_section['title']}")
+                if cc_section["kind"] == "table":
+                    st.table([dict(zip(cc_section["columns"], row)) for row in cc_section["rows"]])
+                    md_table = (
+                        "| " + " | ".join(cc_section["columns"]) + " |\n"
+                        + "| " + " | ".join(["---"] * len(cc_section["columns"])) + " |\n"
+                        + "\n".join("| " + " | ".join(row) + " |" for row in cc_section["rows"])
+                    )
+                    cc_md_parts.append(f"## {cc_section['title']}\n{md_table}")
+                else:
+                    bullet_lines = [f"- {point}" for point in cc_section["points"]]
+                    st.markdown("\n".join(bullet_lines))
+                    cc_md_parts.append(f"## {cc_section['title']}\n" + "\n".join(bullet_lines))
+                st.write("")
+            st.download_button(
+                label="⬇️ Download Claude Code Reference (Markdown)",
+                data="# Claude Code Reference\n\n" + "\n\n".join(cc_md_parts),
+                file_name="claude-code-reference.md",
+                mime="text/markdown",
+            )
 
-                    generated = json.loads(raw)
-                    existing = load_questions()
-                    max_id = max((q["id"] for q in existing), default=0)
-                    for i, q in enumerate(generated):
-                        q["id"] = max_id + i + 1
+        elif section == "📋 Exam Blueprint":
+            st.markdown(
+                """
+                ### CCAR-F Exam Blueprint
+                *Domains and their approximate weight on the 60-item exam:*
+                """
+            )
+            st.table([
+                {"Domain": "1. Agentic Architecture & Orchestration", "Weight": "27%"},
+                {"Domain": "2. Tool Design & MCP Integration", "Weight": "18%"},
+                {"Domain": "3. Claude Code Configuration & Workflows", "Weight": "20%"},
+                {"Domain": "4. Prompt Engineering & Structured Output", "Weight": "20%"},
+                {"Domain": "5. Context Management & Reliability", "Weight": "15%"},
+            ])
+            render_stat_cards([
+                ("60", "Items"),
+                ("120 min", "Time limit"),
+                ("720 / 1000", "Passing scaled score"),
+            ])
+            st.write("")
+            st.markdown(
+                "**Exam scenarios** — 4 of the following 6 scenarios appear on any given exam. "
+                "Practice any of them (or a random draw of 4) from Home under Scenario Practice:"
+            )
+            st.markdown(
+                "\n".join(f"{i}. **{s['name']}** — {s['summary']}" for i, s in enumerate(SCENARIOS, start=1))
+            )
 
-                    st.success(f"Generated {len(generated)} questions!")
-                    st.divider()
-                    st.subheader("Preview")
-                    for i, q in enumerate(generated):
-                        with st.expander(f"Q{q['id']}: {q['question'][:80]}...", expanded=i == 0):
-                            for letter, text in q["choices"].items():
-                                prefix = "✅" if letter == q["correct"] else "  "
-                                st.markdown(f"{prefix} **{letter}.** {text}")
-                            st.markdown(f"**Explanation:** {q['explanation']}")
+        elif section == "🔗 Reference Links":
+            ref = load_reference_links()
+            for ref_section in ref["sections"]:
+                st.subheader(ref_section["title"])
+                for item in ref_section["items"]:
+                    st.markdown(f"**[{item['label']}]({item['url']})**  \n{item['description']}")
+                st.write("")
 
-                    st.divider()
-                    if st.button("➕ Add all to question bank", type="primary"):
-                        all_qs = existing + generated
-                        with open(QUESTIONS_PATH, "w", encoding="utf-8") as f:
-                            json.dump(all_qs, f, ensure_ascii=False, indent=2)
-                        load_questions.clear()
-                        st.success(
-                            f"✅ {len(generated)} questions added! Bank now has {len(all_qs)} questions. "
-                            "Start a new session from Home to use them."
-                        )
+        elif section == "🤖 Generate Questions":
+            st.subheader("🤖 Generate Questions from a Document")
+            st.markdown(
+                "Upload any PDF or paste text and your chosen AI provider will generate multiple-choice "
+                "questions in the same format as the exam bank. Generated questions are added directly to the pool."
+            )
+            st.divider()
 
-                except json.JSONDecodeError:
-                    st.error(f"{provider['label']} returned an unexpected format. Try again or reduce the number of questions.")
-                except AIProviderError as e:
-                    st.error(str(e))
-                except Exception as e:
-                    st.error(f"Error: {e}")
+            provider_key = st.selectbox(
+                "AI Provider",
+                options=list(PROVIDERS.keys()),
+                format_func=lambda k: PROVIDERS[k]["label"],
+            )
+            provider = PROVIDERS[provider_key]
+
+            col_key, col_model = st.columns([2, 1])
+            api_key = col_key.text_input(
+                f"{provider['label']} API Key",
+                type="password",
+                value=os.environ.get(provider["env_var"], ""),
+                help=f"{provider['key_help']}. Never stored — only used for this session.",
+            )
+            model = col_model.text_input("Model", value=provider["default_model"])
+
+            st.write("")
+            input_tab_upload, input_tab_text = st.tabs(["📎 Upload PDF", "📝 Paste Text"])
+            source_text = ""
+
+            with input_tab_upload:
+                uploaded = st.file_uploader("Upload a PDF", type="pdf")
+                if uploaded:
+                    with pdfplumber.open(io.BytesIO(uploaded.read())) as pdf:
+                        source_text = "\n\n".join(p.extract_text() for p in pdf.pages if p.extract_text())
+                    st.success(f"Extracted {len(source_text):,} characters from {uploaded.name}")
+
+            with input_tab_text:
+                pasted = st.text_area("Paste document text here", height=200)
+                if pasted.strip():
+                    source_text = pasted.strip()
+
+            num_to_generate = st.slider("Number of questions to generate", min_value=3, max_value=20, value=5)
+
+            st.write("")
+            generate_clicked = st.button("✨ Generate Questions", type="primary", disabled=not api_key or not source_text)
+
+            if not api_key:
+                st.caption(f"Enter your {provider['label']} API key above to enable generation.")
+            elif not source_text:
+                st.caption("Upload a PDF or paste text above to enable generation.")
+
+            if generate_clicked and api_key and source_text:
+                system_prompt = (
+                    "You are an expert exam question writer specializing in technical certification exams. "
+                    "Given a document, generate multiple-choice questions that test deep understanding of the content. "
+                    "Each question must have exactly 4 choices (A, B, C, D), one correct answer, and a detailed explanation "
+                    "that explains why the correct answer is right AND why each wrong answer is incorrect. "
+                    "Respond ONLY with a valid JSON array — no markdown, no commentary."
+                )
+                user_prompt = (
+                    f"Generate {num_to_generate} multiple-choice questions from the following document.\n\n"
+                    "Return a JSON array where each element has this exact structure:\n"
+                    '{"question": "...", "choices": {"A": "...", "B": "...", "C": "...", "D": "..."}, '
+                    '"correct": "A", "explanation": "..."}\n\n'
+                    f"Document:\n{source_text[:GENERATION_MAX_SOURCE_CHARS]}"
+                )
+
+                with st.spinner(f"Generating {num_to_generate} questions with {provider['label']}..."):
+                    try:
+                        raw = generate_text(provider_key, api_key, model, system_prompt, user_prompt).strip()
+                        if raw.startswith("```"):
+                            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+                        generated = json.loads(raw)
+                        existing = load_questions()
+                        max_id = max((q["id"] for q in existing), default=0)
+                        for i, q in enumerate(generated):
+                            q["id"] = max_id + i + 1
+
+                        st.success(f"Generated {len(generated)} questions!")
+                        st.divider()
+                        st.subheader("Preview")
+                        for i, q in enumerate(generated):
+                            with st.expander(f"Q{q['id']}: {q['question'][:80]}...", expanded=i == 0):
+                                for letter, text in q["choices"].items():
+                                    prefix = "✅" if letter == q["correct"] else "  "
+                                    st.markdown(f"{prefix} **{letter}.** {text}")
+                                st.markdown(f"**Explanation:** {q['explanation']}")
+
+                        st.divider()
+                        if st.button("➕ Add all to question bank", type="primary"):
+                            all_qs = existing + generated
+                            with open(QUESTIONS_PATH, "w", encoding="utf-8") as f:
+                                json.dump(all_qs, f, ensure_ascii=False, indent=2)
+                            load_questions.clear()
+                            st.success(
+                                f"✅ {len(generated)} questions added! Bank now has {len(all_qs)} questions. "
+                                "Start a new session from Home to use them."
+                            )
+
+                    except json.JSONDecodeError:
+                        st.error(f"{provider['label']} returned an unexpected format. Try again or reduce the number of questions.")
+                    except AIProviderError as e:
+                        st.error(str(e))
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
 # ─── PROGRESS ───────────────────────────────────────────────────────────────
 
