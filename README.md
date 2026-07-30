@@ -64,8 +64,13 @@ claude-architect-cert-app/
 ├── .streamlit/
 │   ├── config.toml                # App theme
 │   └── secrets.toml.example       # Reference for Streamlit Cloud's Settings -> Secrets
+├── scripts/
+│   └── lint_questions.py          # Flags questions.json entries with structural issues or unparsed explanations
+├── tests/                          # pytest suite for app.py / storage.py / ai_providers.py / scripts/
 └── materials/
     ├── *.pdf                      # Exam guides / question source PDFs shown in the Materials tab
+    ├── cheat_sheets.json           # Condensed per-domain exam facts (Materials → Cheat Sheets tab)
+    ├── claude_code_reference.json  # Claude Code CLI operational reference (Materials → Claude Code Reference tab)
     └── reference_links.json       # Curated reference links
 ```
 
@@ -216,6 +221,23 @@ The `materials/` folder contains all reference content surfaced in the **Materia
   ]
 }
 ```
+
+---
+
+## Question Bank Linting
+
+Each question's `explanation` is one flat string walked per-choice by `parse_explanation()` in `app.py` (see CLAUDE.md's "explanation string format" section) — it falls back to rendering the raw string when it can't locate a choice's own text inside the explanation, which happens for a fraction of entries (mostly ones scraped from PDFs with heavily paraphrased echoes).
+
+Run the lint script to find those, plus structural issues (a `correct` letter missing from `choices`, duplicate `id`s, empty explanations):
+
+```bash
+poetry run python scripts/lint_questions.py            # human-readable summary
+poetry run python scripts/lint_questions.py --verbose   # list every affected question id + domain
+poetry run python scripts/lint_questions.py --json      # machine-readable report
+poetry run python scripts/lint_questions.py --strict    # also exit non-zero on unparsed explanations
+```
+
+Exit code is non-zero on any structural error always, and on unparsed explanations too when `--strict` is passed — plain runs (no `--strict`) treat those as a quality warning, not a failure.
 
 ---
 
