@@ -1,6 +1,6 @@
 """Corner-case coverage for the pure logic functions in app.py: explanation
-parsing, checkpoint-driven question selection, drill-pool computation, domain
-stat aggregation, and the git checkpoint push helper.
+parsing, checkpoint-driven question selection, spaced-repetition drill-queue
+computation, domain stat aggregation, and the git checkpoint push helper.
 
 app.py is a Streamlit script, but importing it directly works in "bare mode"
 (Streamlit just logs a "missing ScriptRunContext" warning) — that's enough to
@@ -10,6 +10,7 @@ touch the repo's real checkpoint.json / session_logs.
 """
 
 import subprocess
+from datetime import datetime
 
 import pytest
 
@@ -179,14 +180,64 @@ def test_build_and_store_session_log_stores_none_for_blank_learner_id(fixture_qu
     assert log["learner_id"] is None
 
 
-# ─── compute_drill_pool ──────────────────────────────────────────────────────
+# ─── compute_learner_srs_state ──────────────────────────────────────────────
 
 
-def test_compute_drill_pool_empty_without_learner_id(fixture_questions):
-    assert app.compute_drill_pool("", [{"learner_id": "alice", "questions": []}]) == []
+def test_compute_learner_srs_state_empty_without_learner_id(fixture_questions):
+    assert app.compute_learner_srs_state("", [{"learner_id": "alice", "questions": []}]) == {}
 
 
-def test_compute_drill_pool_returns_missed_questions_for_learner(fixture_questions):
+def test_compute_learner_srs_state_streak_counts_trailing_corrects(fixture_questions):
+    logs = [
+        {
+            "learner_id": "alice",
+            "date": "2026-01-01 00:00:00",
+            "questions": [{"id": 1, "result": "incorrect"}],
+        },
+        {
+            "learner_id": "alice",
+            "date": "2026-01-02 00:00:00",
+            "questions": [{"id": 1, "result": "correct"}],
+        },
+        {
+            "learner_id": "alice",
+            "date": "2026-01-03 00:00:00",
+            "questions": [{"id": 1, "result": "correct"}],
+        },
+    ]
+    state = app.compute_learner_srs_state("alice", logs)
+    assert state[1]["streak"] == 2
+    assert state[1]["last_seen"] == "2026-01-03 00:00:00"
+    assert state[1]["attempts"] == 3
+
+
+def test_compute_learner_srs_state_miss_resets_streak_to_zero(fixture_questions):
+    logs = [
+        {"learner_id": "alice", "date": "2026-01-01 00:00:00", "questions": [{"id": 1, "result": "correct"}]},
+        {"learner_id": "alice", "date": "2026-01-02 00:00:00", "questions": [{"id": 1, "result": "incorrect"}]},
+    ]
+    state = app.compute_learner_srs_state("alice", logs)
+    assert state[1]["streak"] == 0
+
+
+def test_compute_learner_srs_state_skipped_answers_do_not_count_as_an_attempt(fixture_questions):
+    logs = [
+        {"learner_id": "alice", "date": "2026-01-01 00:00:00", "questions": [{"id": 1, "result": "incorrect"}]},
+        {"learner_id": "alice", "date": "2026-01-02 00:00:00", "questions": [{"id": 1, "result": "skipped"}]},
+    ]
+    state = app.compute_learner_srs_state("alice", logs)
+    assert state[1]["last_seen"] == "2026-01-01 00:00:00"
+    assert state[1]["streak"] == 0
+
+
+# ─── compute_drill_queue ─────────────────────────────────────────────────────
+
+
+def test_compute_drill_queue_empty_without_learner_id(fixture_questions):
+    assert app.compute_drill_queue("", [{"learner_id": "alice", "questions": []}]) == []
+
+
+def test_compute_drill_queue_missed_question_is_always_due(fixture_questions):
     logs = [
         {
             "learner_id": "alice",
@@ -194,37 +245,44 @@ def test_compute_drill_pool_returns_missed_questions_for_learner(fixture_questio
             "questions": [{"id": 1, "result": "incorrect"}, {"id": 2, "result": "correct"}],
         }
     ]
-    pool = app.compute_drill_pool("alice", logs)
-    assert [q["id"] for q in pool] == [1]
+    # id 2's single correct answer (box 1, due after 1 day) isn't due one minute later;
+    # id 1's miss (box 0, due immediately) always is.
+    now = datetime(2026, 1, 1, 0, 1, 0)
+    queue = app.compute_drill_queue("alice", logs, now=now)
+    assert [q["id"] for q in queue] == [1]
 
 
-def test_compute_drill_pool_ignores_other_learners(fixture_questions):
-    logs = [{"learner_id": "bob", "date": "2026-01-01", "questions": [{"id": 1, "result": "incorrect"}]}]
-    assert app.compute_drill_pool("alice", logs) == []
+def test_compute_drill_queue_ignores_other_learners(fixture_questions):
+    logs = [{"learner_id": "bob", "date": "2026-01-01 00:00:00", "questions": [{"id": 1, "result": "incorrect"}]}]
+    assert app.compute_drill_queue("alice", logs) == []
 
 
-def test_compute_drill_pool_later_session_overrides_earlier_for_same_question(fixture_questions):
+def test_compute_drill_queue_correct_streak_goes_on_cooldown_then_becomes_due(fixture_questions):
     logs = [
-        {"learner_id": "alice", "date": "2026-01-01", "questions": [{"id": 1, "result": "incorrect"}]},
-        {"learner_id": "alice", "date": "2026-01-02", "questions": [{"id": 1, "result": "correct"}]},
+        {"learner_id": "alice", "date": "2026-01-01 00:00:00", "questions": [{"id": 1, "result": "correct"}]},
     ]
-    assert app.compute_drill_pool("alice", logs) == []
+    # box 1 -> due after 1 day. Not due after half a day, due once the day has passed.
+    soon = datetime(2026, 1, 1, 12, 0, 0)
+    later = datetime(2026, 1, 2, 1, 0, 0)
+    assert app.compute_drill_queue("alice", logs, now=soon) == []
+    assert [q["id"] for q in app.compute_drill_queue("alice", logs, now=later)] == [1]
 
 
-def test_compute_drill_pool_skipped_answers_do_not_count_as_an_attempt(fixture_questions):
+def test_compute_drill_queue_orders_most_overdue_first(fixture_questions):
     logs = [
-        {"learner_id": "alice", "date": "2026-01-01", "questions": [{"id": 1, "result": "incorrect"}]},
-        {"learner_id": "alice", "date": "2026-01-02", "questions": [{"id": 1, "result": "skipped"}]},
+        {"learner_id": "alice", "date": "2026-01-01 00:00:00", "questions": [{"id": 1, "result": "incorrect"}]},
+        {"learner_id": "alice", "date": "2026-01-05 00:00:00", "questions": [{"id": 2, "result": "incorrect"}]},
     ]
-    # the skip doesn't overwrite the earlier recorded "incorrect", so it still drills
-    pool = app.compute_drill_pool("alice", logs)
-    assert [q["id"] for q in pool] == [1]
+    # both are box 0 (due immediately) but id 1 has been overdue far longer
+    now = datetime(2026, 1, 10, 0, 0, 0)
+    queue = app.compute_drill_queue("alice", logs, now=now)
+    assert [q["id"] for q in queue] == [1, 2]
 
 
-def test_compute_drill_pool_handles_logs_missing_date_key(fixture_questions):
+def test_compute_drill_queue_handles_logs_missing_date_key(fixture_questions):
     logs = [{"learner_id": "alice", "questions": [{"id": 1, "result": "incorrect"}]}]
-    pool = app.compute_drill_pool("alice", logs)
-    assert [q["id"] for q in pool] == [1]
+    queue = app.compute_drill_queue("alice", logs)
+    assert [q["id"] for q in queue] == [1]
 
 
 # ─── aggregate_domain_stats_from_logs ───────────────────────────────────────

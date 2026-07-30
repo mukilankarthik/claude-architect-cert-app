@@ -19,7 +19,7 @@ import random
 import re
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pdfplumber
@@ -376,20 +376,62 @@ def build_and_store_session_log(
     STORAGE.write_session_log(session_id, log)
 
 
-def compute_drill_pool(learner_id: str, logs: list[dict]) -> list[dict]:
-    """Questions this learner's most recent attempt got wrong — i.e. missed and not
-    since corrected. Ordered by log date, oldest first, so later attempts override
-    earlier ones for the same question id. Skipped answers don't count as an attempt."""
+# Leitner-style review intervals in days, indexed by a question's current correct
+# streak (capped at the last box): a fresh miss is box 0 (due immediately), and each
+# additional correct-in-a-row answer pushes the next review further out.
+DRILL_BOX_INTERVALS_DAYS = [0, 1, 3, 7, 14, 30]
+
+
+def compute_learner_srs_state(learner_id: str, logs: list[dict]) -> dict[int, dict]:
+    """Per-question review state for a learner, derived entirely from their session
+    logs (no separate persisted state): the correct streak ending at their most recent
+    attempt, and when that attempt happened. Skipped answers don't count as an attempt."""
     if not learner_id:
-        return []
-    last_result_by_id = {}
+        return {}
+    attempts_by_id: dict[int, list[tuple[str, str]]] = {}
     for log in sorted((l for l in logs if l.get("learner_id") == learner_id), key=lambda l: l.get("date", "")):
         for entry in log.get("questions", []):
             if entry["result"] == "skipped":
                 continue
-            last_result_by_id[entry["id"]] = entry["result"]
-    missed_ids = {qid for qid, result in last_result_by_id.items() if result == "incorrect"}
-    return [q for q in ALL_QUESTIONS if q["id"] in missed_ids]
+            attempts_by_id.setdefault(entry["id"], []).append((log.get("date", ""), entry["result"]))
+
+    state = {}
+    for qid, attempts in attempts_by_id.items():
+        streak = 0
+        for _, result in reversed(attempts):
+            if result != "correct":
+                break
+            streak += 1
+        state[qid] = {"streak": streak, "last_seen": attempts[-1][0], "attempts": len(attempts)}
+    return state
+
+
+def compute_drill_queue(learner_id: str, logs: list[dict], now: datetime | None = None) -> list[dict]:
+    """Spaced-repetition drill queue: every question this learner has attempted that's
+    currently due for review, ranked most-overdue first. A miss always resets a question
+    to box 0 (due immediately); each correct-in-a-row answer advances it to a longer
+    interval (see DRILL_BOX_INTERVALS_DAYS), so mastered questions stop resurfacing every
+    session but still get a decay check once their interval elapses."""
+    if not learner_id:
+        return []
+    now = now or datetime.now()
+    state = compute_learner_srs_state(learner_id, logs)
+
+    overdue_by_id = {}
+    for qid, s in state.items():
+        box = min(s["streak"], len(DRILL_BOX_INTERVALS_DAYS) - 1)
+        try:
+            last_seen = datetime.strptime(s["last_seen"], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            last_seen = now
+        due_date = last_seen + timedelta(days=DRILL_BOX_INTERVALS_DAYS[box])
+        overdue_days = (now - due_date).total_seconds() / 86400
+        if overdue_days >= 0:
+            overdue_by_id[qid] = overdue_days
+
+    id_to_question = {q["id"]: q for q in ALL_QUESTIONS}
+    due_ids = sorted(overdue_by_id, key=lambda qid: -overdue_by_id[qid])
+    return [id_to_question[qid] for qid in due_ids if qid in id_to_question]
 
 
 def aggregate_domain_stats_from_logs(logs: list[dict]) -> dict:
@@ -642,8 +684,9 @@ def start_exam(exam_type: str = "learning", drill_pool: list[dict] | None = None
     in the checkpoint. "timed": a fixed-size, fixed-duration mock exam that mirrors
     the real CCA-F exam — always a fresh random draw from the full bank, and never
     marks questions as covered so it doesn't interfere with Learning Mode's pool.
-    "drill": untimed, replays a specific learner's personally-missed questions
-    (see compute_drill_pool) — also never touches the shared checkpoint."""
+    "drill": untimed, replays a specific learner's questions currently due for
+    spaced-repetition review (see compute_drill_queue) — also never touches the
+    shared checkpoint."""
     if exam_type == "timed":
         count = min(TIMED_EXAM_QUESTION_COUNT, len(ALL_QUESTIONS))
         pool = random.sample(ALL_QUESTIONS, count)
@@ -842,8 +885,10 @@ if st.session_state.mode == "home":
             "already covered by someone else.\n"
             "- **Materials tab** has source PDFs, a domain-by-domain cheat sheet, the exam blueprint, and "
             "reference links — worth a look before diving into questions.\n"
-            "- **Drill Mode** replays your personal missed questions, keyed by the Learner ID field in the "
-            "sidebar (not a login — just retype the same ID each visit to keep your history)."
+            "- **Drill Mode** runs a spaced-repetition review of your personal history, keyed by the "
+            "Learner ID field in the sidebar (not a login — just retype the same ID each visit to keep "
+            "your history). Misses come back next session; questions you get right repeatedly are spaced "
+            "further apart instead of resurfacing every time."
         )
     st.divider()
 
@@ -888,19 +933,27 @@ if st.session_state.mode == "home":
 
     with col_drill:
         learner_id = st.session_state.learner_id
-        drill_pool = compute_drill_pool(learner_id, STORAGE.read_all_session_logs()) if learner_id else []
+        all_logs = STORAGE.read_all_session_logs()
+        srs_state = compute_learner_srs_state(learner_id, all_logs) if learner_id else {}
+        drill_pool = compute_drill_queue(learner_id, all_logs) if learner_id else []
+        on_cooldown = len(srs_state) - len(drill_pool)
         st.markdown(
             "<div class='cca-card'><strong>🎯 Drill Mode</strong><br>"
-            "Untimed replay of questions <em>you</em> personally got wrong last time, keyed by the "
-            "Learner ID in the sidebar. A question drops out once you answer it correctly again. "
-            "Doesn't affect the shared checkpoint."
+            "Untimed spaced-repetition review of <em>your</em> questions, keyed by the Learner ID in "
+            "the sidebar. A miss brings a question back next session; each correct-in-a-row answer "
+            "pushes it further out, so mastered questions stop resurfacing but still get a decay check "
+            "later. Ordered most-overdue first. Doesn't affect the shared checkpoint."
             "</div>",
             unsafe_allow_html=True,
         )
         if not learner_id:
             st.caption("Set a Learner ID in the sidebar to enable Drill Mode.")
+        elif not srs_state:
+            st.caption("No questions on record yet for this Learner ID — answer some in Learning Mode first.")
         elif not drill_pool:
-            st.caption("No missed questions on record yet for this Learner ID — nothing to drill.")
+            st.caption(f"Nothing due right now — {on_cooldown} question(s) are on cooldown until their next review.")
+        elif on_cooldown:
+            st.caption(f"{on_cooldown} additional question(s) tracked but not due yet.")
         if st.button(
             f"🎯 Start Drill Mode ({len(drill_pool)})", width='stretch', disabled=not drill_pool
         ):
