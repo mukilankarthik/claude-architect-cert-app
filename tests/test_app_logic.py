@@ -391,6 +391,92 @@ def test_aggregate_domain_stats_empty_logs_returns_empty_dict(fixture_questions)
     assert app.aggregate_domain_stats_from_logs([]) == {}
 
 
+# ─── study report ────────────────────────────────────────────────────────────
+
+
+def test_summarize_logs_computes_accuracy():
+    logs = [{"total_answered": 4, "correct": 3}, {"total_answered": 2, "correct": 0}]
+    summary = app.summarize_logs(logs)
+    assert summary == {"sessions": 2, "answered": 6, "correct": 3, "accuracy_pct": 50}
+
+
+def test_summarize_logs_empty_logs_has_zero_accuracy_not_a_div_by_zero():
+    assert app.summarize_logs([]) == {"sessions": 0, "answered": 0, "correct": 0, "accuracy_pct": 0}
+
+
+def test_focus_areas_from_domain_stats_flags_below_threshold():
+    stats = {
+        "Domain A": {"correct": 9, "total": 10},   # 90%, above threshold
+        "Domain B": {"correct": 3, "total": 10},   # 30%, below threshold
+        "Domain C": {"correct": 0, "total": 0},    # no attempts, shouldn't crash or flag
+    }
+    assert app.focus_areas_from_domain_stats(stats) == ["Domain B"]
+
+
+def test_build_progress_report_without_learner_id_has_no_personal_section(fixture_questions):
+    logs = [{"total_answered": 1, "correct": 1, "questions": [{"id": 1, "result": "correct"}]}]
+    report = app.build_progress_report(logs, learner_id="")
+    assert report["personal"] is None
+    assert report["cohort"]["sessions"] == 1
+
+
+def test_build_progress_report_unknown_learner_id_has_no_personal_section(fixture_questions):
+    logs = [{"learner_id": "bob", "total_answered": 1, "correct": 1, "questions": [{"id": 1, "result": "correct"}]}]
+    report = app.build_progress_report(logs, learner_id="alice")
+    assert report["personal"] is None
+
+
+def test_build_progress_report_personal_section_filters_by_learner_id(fixture_questions):
+    logs = [
+        {
+            "learner_id": "alice", "date": "2026-01-01 00:00:00", "total_answered": 1, "correct": 1,
+            "questions": [{"id": 1, "result": "correct"}],
+        },
+        {
+            "learner_id": "bob", "date": "2026-01-01 00:00:00", "total_answered": 1, "correct": 0,
+            "questions": [{"id": 2, "result": "incorrect"}],
+        },
+    ]
+    report = app.build_progress_report(logs, learner_id="alice")
+    assert report["cohort"]["sessions"] == 2  # cohort section always covers everyone
+    assert report["personal"]["learner_id"] == "alice"
+    assert report["personal"]["sessions"] == 1
+    assert report["personal"]["domain_stats"] == {"Domain A": {"correct": 1, "total": 1}}
+
+
+def test_render_progress_report_markdown_includes_personal_section_when_present(fixture_questions):
+    logs = [
+        {
+            "learner_id": "alice", "date": "2026-01-01 00:00:00", "total_answered": 1, "correct": 1,
+            "questions": [{"id": 1, "result": "correct"}],
+        },
+    ]
+    report = app.build_progress_report(logs, learner_id="alice")
+    md = app.render_progress_report_markdown(report)
+    assert "# CCA-F Study Report" in md
+    assert "Personal (Learner ID: alice)" in md
+    assert "Domain A" in md
+
+
+def test_render_progress_report_markdown_omits_personal_section_when_absent(fixture_questions):
+    report = app.build_progress_report([], learner_id="")
+    md = app.render_progress_report_markdown(report)
+    assert "Personal" not in md
+
+
+def test_render_progress_report_html_includes_personal_section_when_present(fixture_questions):
+    logs = [
+        {
+            "learner_id": "alice", "date": "2026-01-01 00:00:00", "total_answered": 1, "correct": 1,
+            "questions": [{"id": 1, "result": "correct"}],
+        },
+    ]
+    report = app.build_progress_report(logs, learner_id="alice")
+    html = app.render_progress_report_html(report)
+    assert "<html>" in html
+    assert "Learner ID: alice" in html
+
+
 # ─── git_push_checkpoint ─────────────────────────────────────────────────────
 
 

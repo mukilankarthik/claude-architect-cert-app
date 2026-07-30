@@ -558,7 +558,8 @@ def compute_drill_queue(learner_id: str, logs: list[dict], now: datetime | None 
 
 
 def aggregate_domain_stats_from_logs(logs: list[dict]) -> dict:
-    """Correct/total per domain across every recorded session log (cohort-wide, not per-user)."""
+    """Correct/total per domain across the given session logs. Pass every log for a
+    cohort-wide view, or pre-filter to one learner_id for a personal view."""
     id_to_domain = {q["id"]: q.get("domain") for q in ALL_QUESTIONS}
     stats = {}
     for log in logs:
@@ -573,6 +574,178 @@ def aggregate_domain_stats_from_logs(logs: list[dict]) -> dict:
             if entry["result"] == "correct":
                 s["correct"] += 1
     return stats
+
+
+def summarize_logs(logs: list[dict]) -> dict:
+    """Session count, total answered, total correct, and overall accuracy for a set
+    of session logs — the same headline numbers shown as stat cards on the Progress
+    tab, factored out so both the cohort-wide and personal report sections can share it."""
+    answered = sum(log.get("total_answered", 0) for log in logs)
+    correct = sum(log.get("correct", 0) for log in logs)
+    return {
+        "sessions": len(logs),
+        "answered": answered,
+        "correct": correct,
+        "accuracy_pct": int(correct / answered * 100) if answered else 0,
+    }
+
+
+def focus_areas_from_domain_stats(domain_stats: dict) -> list[str]:
+    return [
+        dom for dom, s in domain_stats.items()
+        if s["total"] and (s["correct"] / s["total"]) * 100 < FOCUS_AREA_THRESHOLD_PCT
+    ]
+
+
+def build_progress_report(all_logs: list[dict], learner_id: str = "") -> dict:
+    """Everything the study report needs, computed once and shared by both the
+    Markdown and printable-HTML renderers: cohort-wide stats always, plus a personal
+    section (domain stats, focus areas, spaced-repetition drill backlog) when a
+    learner_id is given and has at least one recorded session."""
+    cohort_stats = summarize_logs(all_logs)
+    cohort_domain_stats = aggregate_domain_stats_from_logs(all_logs)
+    report = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "cohort": {
+            **cohort_stats,
+            "domain_stats": cohort_domain_stats,
+            "focus_areas": focus_areas_from_domain_stats(cohort_domain_stats),
+        },
+        "personal": None,
+    }
+    if not learner_id:
+        return report
+
+    personal_logs = [l for l in all_logs if l.get("learner_id") == learner_id]
+    if not personal_logs:
+        return report
+
+    personal_domain_stats = aggregate_domain_stats_from_logs(personal_logs)
+    srs_state = compute_learner_srs_state(learner_id, all_logs)
+    drill_due = compute_drill_queue(learner_id, all_logs)
+    report["personal"] = {
+        **summarize_logs(personal_logs),
+        "learner_id": learner_id,
+        "domain_stats": personal_domain_stats,
+        "focus_areas": focus_areas_from_domain_stats(personal_domain_stats),
+        "drill_due_count": len(drill_due),
+        "drill_tracked_count": len(srs_state),
+    }
+    return report
+
+
+def render_progress_report_markdown(report: dict) -> str:
+    def domain_table(domain_stats: dict) -> str:
+        if not domain_stats:
+            return "_No domain-tagged questions answered yet._\n"
+        lines = ["| Domain | Exam Weight | Correct | Score |", "| --- | --- | --- | --- |"]
+        for dom, s in domain_stats.items():
+            weight = f"{int(DOMAIN_WEIGHTS[dom] * 100)}%" if dom in DOMAIN_WEIGHTS else "—"
+            score = f"{int(s['correct'] / s['total'] * 100)}%" if s["total"] else "—"
+            lines.append(f"| {dom} | {weight} | {s['correct']}/{s['total']} | {score} |")
+        return "\n".join(lines)
+
+    parts = [
+        "# CCA-F Study Report",
+        f"_Generated {report['generated_at']}_",
+        "",
+        "## Cohort-wide (all sessions on this deployment)",
+        f"- Sessions recorded: {report['cohort']['sessions']}",
+        f"- Questions answered: {report['cohort']['answered']}",
+        f"- Overall accuracy: {report['cohort']['accuracy_pct']}%",
+        "",
+        domain_table(report["cohort"]["domain_stats"]),
+    ]
+    if report["cohort"]["focus_areas"]:
+        parts.append("\n🎯 **Focus areas (below " + f"{FOCUS_AREA_THRESHOLD_PCT}%" + "):** " + ", ".join(report["cohort"]["focus_areas"]))
+
+    personal = report["personal"]
+    if personal:
+        parts += [
+            "",
+            f"## Personal (Learner ID: {personal['learner_id']})",
+            f"- Sessions recorded: {personal['sessions']}",
+            f"- Questions answered: {personal['answered']}",
+            f"- Personal accuracy: {personal['accuracy_pct']}%",
+            f"- Drill backlog: {personal['drill_due_count']} due now, "
+            f"{personal['drill_tracked_count']} tracked overall",
+            "",
+            domain_table(personal["domain_stats"]),
+        ]
+        if personal["focus_areas"]:
+            parts.append("\n🎯 **Personal focus areas (below " + f"{FOCUS_AREA_THRESHOLD_PCT}%" + "):** " + ", ".join(personal["focus_areas"]))
+
+    return "\n".join(parts) + "\n"
+
+
+def render_progress_report_html(report: dict) -> str:
+    def domain_rows(domain_stats: dict) -> str:
+        if not domain_stats:
+            return "<tr><td colspan='4'><em>No domain-tagged questions answered yet.</em></td></tr>"
+        rows = []
+        for dom, s in domain_stats.items():
+            weight = f"{int(DOMAIN_WEIGHTS[dom] * 100)}%" if dom in DOMAIN_WEIGHTS else "—"
+            score = f"{int(s['correct'] / s['total'] * 100)}%" if s["total"] else "—"
+            rows.append(f"<tr><td>{dom}</td><td>{weight}</td><td>{s['correct']}/{s['total']}</td><td>{score}</td></tr>")
+        return "\n".join(rows)
+
+    def section(title: str, stats: dict, domain_stats: dict, focus_areas: list[str], extra: str = "") -> str:
+        focus_html = (
+            f"<p class='focus'>🎯 Focus areas (below {FOCUS_AREA_THRESHOLD_PCT}%): {', '.join(focus_areas)}</p>"
+            if focus_areas else ""
+        )
+        return f"""
+        <h2>{title}</h2>
+        <div class="stats">
+          <div><strong>{stats['sessions']}</strong><span>Sessions</span></div>
+          <div><strong>{stats['answered']}</strong><span>Questions Answered</span></div>
+          <div><strong>{stats['accuracy_pct']}%</strong><span>Accuracy</span></div>
+        </div>
+        {extra}
+        <table>
+          <thead><tr><th>Domain</th><th>Exam Weight</th><th>Correct</th><th>Score</th></tr></thead>
+          <tbody>{domain_rows(domain_stats)}</tbody>
+        </table>
+        {focus_html}
+        """
+
+    personal = report["personal"]
+    personal_html = ""
+    if personal:
+        extra = (
+            f"<p class='drill'>Drill backlog: <strong>{personal['drill_due_count']}</strong> due now, "
+            f"{personal['drill_tracked_count']} tracked overall.</p>"
+        )
+        personal_html = section(
+            f"Personal — Learner ID: {personal['learner_id']}",
+            personal, personal["domain_stats"], personal["focus_areas"], extra,
+        )
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>CCA-F Study Report</title>
+<style>
+  body {{ font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }}
+  h1 {{ margin-bottom: 0; }}
+  .subtitle {{ color: #64748b; margin-top: 0.2rem; }}
+  h2 {{ border-bottom: 2px solid #0d9488; padding-bottom: 0.3rem; margin-top: 2.2rem; }}
+  .stats {{ display: flex; gap: 1.5rem; margin: 1rem 0; }}
+  .stats div {{ flex: 1; text-align: center; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.8rem; }}
+  .stats strong {{ display: block; font-size: 1.5rem; }}
+  .stats span {{ font-size: 0.8rem; color: #64748b; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 0.5rem; }}
+  th, td {{ border: 1px solid #cbd5e1; padding: 0.45rem 0.6rem; text-align: left; font-size: 0.92rem; }}
+  th {{ background: #f1f5f9; }}
+  .focus {{ background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 0.6rem 0.8rem; margin-top: 0.8rem; }}
+  .drill {{ color: #334155; }}
+  @media print {{ body {{ margin: 0.5rem auto; }} }}
+</style>
+</head><body>
+  <h1>🏛️ CCA-F Study Report</h1>
+  <p class="subtitle">Generated {report['generated_at']} · use your browser's Print (Ctrl/Cmd+P) to save as PDF</p>
+  {section("Cohort-wide (all sessions on this deployment)", report["cohort"], report["cohort"]["domain_stats"], report["cohort"]["focus_areas"])}
+  {personal_html}
+</body></html>
+"""
 
 
 def git_push_checkpoint(session_id: str) -> tuple[bool, str]:
@@ -1648,3 +1821,33 @@ elif st.session_state.mode == "progress":
         ]
         st.dataframe(trend_rows, width='stretch', hide_index=True)
         st.line_chart({"Score %": [r["Score %"] for r in trend_rows]})
+
+        st.divider()
+        st.subheader("📄 Study Report")
+        report_caption = "Cohort-wide stats above, as a file to save or share."
+        if st.session_state.learner_id:
+            report_caption += (
+                f" Since a Learner ID (\"{st.session_state.learner_id}\") is set in the sidebar, it also "
+                "includes your personal domain breakdown and drill backlog."
+            )
+        else:
+            report_caption += " Set a Learner ID in the sidebar to also include a personal breakdown."
+        st.caption(report_caption)
+
+        report = build_progress_report(logs, st.session_state.learner_id)
+        col_md, col_html = st.columns(2)
+        col_md.download_button(
+            label="⬇️ Download Report (Markdown)",
+            data=render_progress_report_markdown(report),
+            file_name="cca-f-study-report.md",
+            mime="text/markdown",
+            width='stretch',
+        )
+        col_html.download_button(
+            label="🖨️ Download Printable Report (HTML)",
+            data=render_progress_report_html(report),
+            file_name="cca-f-study-report.html",
+            mime="text/html",
+            width='stretch',
+            help="Open the downloaded file in a browser and use Print (Ctrl/Cmd+P) → Save as PDF.",
+        )
