@@ -328,6 +328,12 @@ def load_cheat_sheets() -> dict:
         return json.load(f)
 
 
+@st.cache_data
+def load_claude_code_reference() -> dict:
+    with open(MATERIALS_DIR / "claude_code_reference.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
 ALL_QUESTIONS = load_questions()
 
 # ─── Checkpoint & session log helpers ───────────────────────────────────────
@@ -1160,7 +1166,9 @@ elif st.session_state.mode == "materials":
 
     pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
     pdf_tab_names = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
-    all_tab_names = pdf_tab_names + ["📇 Cheat Sheets", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions"]
+    all_tab_names = pdf_tab_names + [
+        "📇 Cheat Sheets", "⌨️ Claude Code Reference", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions",
+    ]
     tabs = st.tabs(all_tab_names)
 
     for tab, pdf_path in zip(tabs, pdfs):
@@ -1174,7 +1182,7 @@ elif st.session_state.mode == "materials":
                 key=f"dl_{pdf_path.stem}",
             )
 
-    with tabs[-4]:
+    with tabs[-5]:
         st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")
         cheat_sheets = load_cheat_sheets()
         cheat_sheet_md_parts = []
@@ -1190,6 +1198,36 @@ elif st.session_state.mode == "materials":
             label="⬇️ Download Cheat Sheet (Markdown)",
             data="# CCA-F Cheat Sheet\n\n" + "\n\n".join(cheat_sheet_md_parts),
             file_name="cca-f-cheat-sheet.md",
+            mime="text/markdown",
+        )
+
+    with tabs[-4]:
+        st.caption(
+            "Operational reference for the Claude Code CLI — slash commands, keyboard shortcuts, config files, "
+            "hooks, and CLAUDE.md conventions. Useful for the exam's Claude Code Configuration & Workflows "
+            "domain, and as a working reference on the job."
+        )
+        cc_ref = load_claude_code_reference()
+        cc_md_parts = []
+        for section in cc_ref["sections"]:
+            st.subheader(f"{section['icon']} {section['title']}")
+            if section["kind"] == "table":
+                st.table([dict(zip(section["columns"], row)) for row in section["rows"]])
+                md_table = (
+                    "| " + " | ".join(section["columns"]) + " |\n"
+                    + "| " + " | ".join(["---"] * len(section["columns"])) + " |\n"
+                    + "\n".join("| " + " | ".join(row) + " |" for row in section["rows"])
+                )
+                cc_md_parts.append(f"## {section['title']}\n{md_table}")
+            else:
+                bullet_lines = [f"- {point}" for point in section["points"]]
+                st.markdown("\n".join(bullet_lines))
+                cc_md_parts.append(f"## {section['title']}\n" + "\n".join(bullet_lines))
+            st.write("")
+        st.download_button(
+            label="⬇️ Download Claude Code Reference (Markdown)",
+            data="# Claude Code Reference\n\n" + "\n\n".join(cc_md_parts),
+            file_name="claude-code-reference.md",
             mime="text/markdown",
         )
 

@@ -1,0 +1,107 @@
+{
+  "sections": [
+    {
+      "title": "Slash Commands",
+      "icon": "⚡",
+      "kind": "table",
+      "columns": ["Command", "What it does"],
+      "rows": [
+        ["/clear", "Wipe conversation history and start a fresh context window"],
+        ["/compact", "Summarize the conversation so far to free up context space, keeping key details"],
+        ["/agents", "Create, view, or edit custom subagents available to the current project"],
+        ["/mcp", "List configured MCP servers and their connection status"],
+        ["/permissions", "View or edit tool-permission rules (allow/ask/deny) for this project"],
+        ["/model", "Switch the active model for the session"],
+        ["/config", "Open interactive settings (theme, notifications, etc.)"],
+        ["/hooks", "View or edit configured lifecycle hooks"],
+        ["/init", "Generate a starter CLAUDE.md by analyzing the current codebase"],
+        ["/review", "Review a pull request"],
+        ["/pr_comments", "Fetch and display comments on the current PR"],
+        ["/cost", "Show token usage and cost for the current session"],
+        ["/memory", "Open a memory file (CLAUDE.md at the relevant scope) for editing"],
+        ["/rewind", "Roll the conversation and/or code back to an earlier checkpoint"],
+        ["/vim", "Toggle vim-style input mode"],
+        ["/bug", "Report a bug in Claude Code"],
+        ["/doctor", "Diagnose installation and configuration health issues"]
+      ]
+    },
+    {
+      "title": "Keyboard Shortcuts",
+      "icon": "⌨️",
+      "kind": "table",
+      "columns": ["Shortcut", "What it does"],
+      "rows": [
+        ["Shift+Tab", "Cycle mode — normal → auto-accept edits → plan mode"],
+        ["Esc", "Interrupt Claude mid-response or mid-tool-call"],
+        ["Esc, Esc (double-tap)", "Rewind to a previous point in the conversation/edit history"],
+        ["Ctrl+C", "Cancel current input or generation"],
+        ["Ctrl+D", "Exit Claude Code"],
+        ["Ctrl+L", "Clear the terminal screen (history preserved)"],
+        ["Up / Down arrows", "Navigate input history"],
+        ["! + command", "Run a one-off bash command directly (bash mode)"],
+        ["# + text", "Add a memory/instruction directly to CLAUDE.md"],
+        ["@ + path", "Reference a file or directory by path in your message"],
+        ["Tab", "Autocomplete file paths and commands"],
+        ["Ctrl+R", "Search input history"],
+        ["Shift+Enter (or \\ + Enter)", "Insert a newline without submitting"]
+      ]
+    },
+    {
+      "title": "CLAUDE.md & Memory",
+      "icon": "🧠",
+      "kind": "points",
+      "points": [
+        "Precedence (most to least specific): enterprise-managed policy > project CLAUDE.md (checked in, shared with the team) > user-level (~/.claude/CLAUDE.md, personal across all projects) > nested directory-level CLAUDE.md files loaded as Claude reads into that subtree.",
+        "Long or conflicting CLAUDE.md files (500+ lines, contradictory rules) degrade instruction-following — split into smaller, scoped files per subdirectory rather than one monolithic file.",
+        "Use # during a session to append a new instruction to CLAUDE.md immediately, or /memory to open and edit it directly.",
+        "Nested CLAUDE.md files let subdirectories override or add to parent conventions (e.g. a frontend/ CLAUDE.md with different lint rules than the repo root).",
+        "CLAUDE.md is prose read by the model each session, not enforced config — for hard guarantees (blocking a command, always running a formatter) use hooks or permission rules instead."
+      ]
+    },
+    {
+      "title": "Config Files & Locations",
+      "icon": "🗂️",
+      "kind": "table",
+      "columns": ["Path", "Purpose"],
+      "rows": [
+        [".claude/settings.json", "Project-level settings checked into git — shared with the team"],
+        [".claude/settings.local.json", "Project-level personal overrides — gitignored, per-developer"],
+        ["~/.claude/settings.json", "User-level settings applied across all projects"],
+        [".mcp.json", "Project-scoped MCP server definitions, shared via git"],
+        [".claude/agents/*.md", "Custom subagent definitions (frontmatter + system prompt)"],
+        [".claude/commands/*.md", "Custom slash command definitions, shared via git"],
+        ["CLAUDE.md", "Project memory/instructions, loaded automatically each session"],
+        ["~/.claude/CLAUDE.md", "User-level memory/instructions, applied across all projects"]
+      ]
+    },
+    {
+      "title": "Hooks (Lifecycle Events)",
+      "icon": "🪝",
+      "kind": "table",
+      "columns": ["Event", "Fires when"],
+      "rows": [
+        ["PreToolUse", "Before a tool call executes — can block or modify it"],
+        ["PostToolUse", "After a tool call completes — can inspect or react to the result"],
+        ["UserPromptSubmit", "When the user submits a new prompt, before Claude processes it"],
+        ["Notification", "When Claude Code sends a system notification"],
+        ["Stop", "When Claude finishes responding and control returns to the user"],
+        ["SubagentStop", "When a subagent finishes and returns control to its caller"],
+        ["PreCompact", "Before context is compacted/summarized"],
+        ["SessionStart", "When a new session begins"],
+        ["SessionEnd", "When a session ends"]
+      ]
+    },
+    {
+      "title": "Permission Modes",
+      "icon": "🔐",
+      "kind": "table",
+      "columns": ["Mode", "Behavior"],
+      "rows": [
+        ["default", "Prompts for approval on tool calls not covered by an allow/deny rule"],
+        ["acceptEdits", "Auto-accepts file edit tool calls; still prompts for other risky tools"],
+        ["plan", "Read-only exploration — no edits or commands run until a plan is approved"],
+        ["bypassPermissions", "Skips all permission prompts — use only in trusted, sandboxed environments"]
+      ]
+    }
+  ]
+}
