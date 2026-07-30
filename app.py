@@ -1103,6 +1103,18 @@ with st.sidebar:
         st.caption(f"Storage backend: **{STORAGE.backend_name}**")
         st.info(f"📚 {len(ALL_QUESTIONS)} total · {len(unused)} remaining")
 
+    elif st.session_state.mode == "materials":
+        st.subheader("📚 Section")
+        pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
+        pdf_labels = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
+        materials_section_options = pdf_labels + [
+            "📇 Cheat Sheets", "⌨️ Claude Code Reference", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions",
+        ]
+        st.selectbox(
+            "Choose what to view", options=materials_section_options,
+            key="materials_section", label_visibility="collapsed",
+        )
+
     elif st.session_state.mode == "exam":
         questions = st.session_state.questions
         is_timed = st.session_state.exam_type == "timed"
@@ -1558,24 +1570,27 @@ elif st.session_state.mode == "materials":
     st.divider()
 
     pdfs = sorted(MATERIALS_DIR.glob("*.pdf"))
-    pdf_tab_names = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
-    all_tab_names = pdf_tab_names + [
+    pdf_labels = [f"📄 {p.stem.replace('-', ' ').replace('_', ' ').title()}" for p in pdfs]
+    pdf_by_label = dict(zip(pdf_labels, pdfs))
+    materials_section_options = pdf_labels + [
         "📇 Cheat Sheets", "⌨️ Claude Code Reference", "📋 Exam Blueprint", "🔗 Reference Links", "🤖 Generate Questions",
     ]
-    tabs = st.tabs(all_tab_names)
+    section = st.session_state.get("materials_section")
+    if section not in materials_section_options:
+        section = materials_section_options[0]
 
-    for tab, pdf_path in zip(tabs, pdfs):
-        with tab:
-            pdf_viewer(str(pdf_path), width=700, height=800)
-            st.download_button(
-                label="⬇️ Download PDF",
-                data=pdf_path.read_bytes(),
-                file_name=pdf_path.name,
-                mime="application/pdf",
-                key=f"dl_{pdf_path.stem}",
-            )
+    if section in pdf_by_label:
+        pdf_path = pdf_by_label[section]
+        pdf_viewer(str(pdf_path), width=700, height=800)
+        st.download_button(
+            label="⬇️ Download PDF",
+            data=pdf_path.read_bytes(),
+            file_name=pdf_path.name,
+            mime="application/pdf",
+            key=f"dl_{pdf_path.stem}",
+        )
 
-    with tabs[-5]:
+    elif section == "📇 Cheat Sheets":
         st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")
         cheat_sheets = load_cheat_sheets()
         cheat_sheet_md_parts = []
@@ -1594,7 +1609,7 @@ elif st.session_state.mode == "materials":
             mime="text/markdown",
         )
 
-    with tabs[-4]:
+    elif section == "⌨️ Claude Code Reference":
         st.caption(
             "Operational reference for the Claude Code CLI — slash commands, keyboard shortcuts, config files, "
             "hooks, and CLAUDE.md conventions. Useful for the exam's Claude Code Configuration & Workflows "
@@ -1602,20 +1617,20 @@ elif st.session_state.mode == "materials":
         )
         cc_ref = load_claude_code_reference()
         cc_md_parts = []
-        for section in cc_ref["sections"]:
-            st.subheader(f"{section['icon']} {section['title']}")
-            if section["kind"] == "table":
-                st.table([dict(zip(section["columns"], row)) for row in section["rows"]])
+        for cc_section in cc_ref["sections"]:
+            st.subheader(f"{cc_section['icon']} {cc_section['title']}")
+            if cc_section["kind"] == "table":
+                st.table([dict(zip(cc_section["columns"], row)) for row in cc_section["rows"]])
                 md_table = (
-                    "| " + " | ".join(section["columns"]) + " |\n"
-                    + "| " + " | ".join(["---"] * len(section["columns"])) + " |\n"
-                    + "\n".join("| " + " | ".join(row) + " |" for row in section["rows"])
+                    "| " + " | ".join(cc_section["columns"]) + " |\n"
+                    + "| " + " | ".join(["---"] * len(cc_section["columns"])) + " |\n"
+                    + "\n".join("| " + " | ".join(row) + " |" for row in cc_section["rows"])
                 )
-                cc_md_parts.append(f"## {section['title']}\n{md_table}")
+                cc_md_parts.append(f"## {cc_section['title']}\n{md_table}")
             else:
-                bullet_lines = [f"- {point}" for point in section["points"]]
+                bullet_lines = [f"- {point}" for point in cc_section["points"]]
                 st.markdown("\n".join(bullet_lines))
-                cc_md_parts.append(f"## {section['title']}\n" + "\n".join(bullet_lines))
+                cc_md_parts.append(f"## {cc_section['title']}\n" + "\n".join(bullet_lines))
             st.write("")
         st.download_button(
             label="⬇️ Download Claude Code Reference (Markdown)",
@@ -1624,7 +1639,7 @@ elif st.session_state.mode == "materials":
             mime="text/markdown",
         )
 
-    with tabs[-3]:
+    elif section == "📋 Exam Blueprint":
         st.markdown(
             """
             ### CCAR-F Exam Blueprint
@@ -1652,15 +1667,15 @@ elif st.session_state.mode == "materials":
             "\n".join(f"{i}. **{s['name']}** — {s['summary']}" for i, s in enumerate(SCENARIOS, start=1))
         )
 
-    with tabs[-2]:
+    elif section == "🔗 Reference Links":
         ref = load_reference_links()
-        for section in ref["sections"]:
-            st.subheader(section["title"])
-            for item in section["items"]:
+        for ref_section in ref["sections"]:
+            st.subheader(ref_section["title"])
+            for item in ref_section["items"]:
                 st.markdown(f"**[{item['label']}]({item['url']})**  \n{item['description']}")
             st.write("")
 
-    with tabs[-1]:
+    elif section == "🤖 Generate Questions":
         st.subheader("🤖 Generate Questions from a Document")
         st.markdown(
             "Upload any PDF or paste text and your chosen AI provider will generate multiple-choice "
