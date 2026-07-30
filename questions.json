@@ -1512,7 +1512,7 @@
     "question": "Your monorepo contains shared coding standards in /docs/standards/security-rules.md (for services handling user data), testing-patterns.md (for all packages), and api-conventions.md (for API-facing services). Your 15 packages are organized by feature domain (/packages/auth/, /packages/billing/, /packages/notifications/, etc.) without naming conventions indicating which handle user data or expose APIs. Package maintainers are expected to configure their own local development settings, as they understand their package's domain requirements. Currently, all package CLAUDE.md files duplicate all three standards, applying irrelevant guidance. What's the most effective approach?",
     "choices": {
       "A": "Create .claude/rules/ files for each standard with YAML frontmatter paths listing every package directory where that standard should apply.",
-      "B": "Create a shared-standards.nd that uses @imports to combine all three standards, then have each package's CLAUDE.md import that combined file.",
+      "B": "Create a shared-standards.md that uses @imports to combine all three standards, then have each package's CLAUDE.md import that combined file.",
       "C": "Put all standards in the root CLAUDE.md with override instructions like \"ignore security-rules.md when working in packages that don't handle user data.\"",
       "D": "Use @imports in each package's CLAUDE.md to reference only the specific standard files relevant to that package, based on the maintainer's domain knowledge."
     },
