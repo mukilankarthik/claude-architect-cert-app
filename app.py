@@ -53,6 +53,80 @@ DOMAIN_WEIGHTS = {
 }
 FOCUS_AREA_THRESHOLD_PCT = 70  # domain score below this is called out as a focus area
 
+# The 6 named scenarios from the CCA-F blueprint (4 of 6 appear on any given real exam).
+# Individual questions aren't tagged by scenario — instead each scenario carries an
+# approximate domain-weight profile (sums to 1.0) reflecting which domains that scenario's
+# narrative leans on most, used to draw a stratified practice set (see sample_scenario_pool).
+SCENARIOS = [
+    {
+        "name": "Customer Support Resolution Agent",
+        "summary": "Agent SDK, MCP tools, escalation & first-contact resolution",
+        "domain_weights": {
+            "Agentic Architecture & Orchestration": 0.35,
+            "Tool Design & MCP Integration": 0.30,
+            "Context Management & Reliability": 0.25,
+            "Claude Code Configuration & Workflows": 0.05,
+            "Prompt Engineering & Structured Output": 0.05,
+        },
+    },
+    {
+        "name": "Code Generation with Claude Code",
+        "summary": "Slash commands, CLAUDE.md, plan mode vs direct execution",
+        "domain_weights": {
+            "Claude Code Configuration & Workflows": 0.55,
+            "Agentic Architecture & Orchestration": 0.15,
+            "Prompt Engineering & Structured Output": 0.15,
+            "Tool Design & MCP Integration": 0.10,
+            "Context Management & Reliability": 0.05,
+        },
+    },
+    {
+        "name": "Multi-Agent Research System",
+        "summary": "Coordinator/subagent orchestration, source provenance",
+        "domain_weights": {
+            "Agentic Architecture & Orchestration": 0.45,
+            "Context Management & Reliability": 0.25,
+            "Tool Design & MCP Integration": 0.15,
+            "Prompt Engineering & Structured Output": 0.10,
+            "Claude Code Configuration & Workflows": 0.05,
+        },
+    },
+    {
+        "name": "Developer Productivity with Claude",
+        "summary": "Built-in tools, MCP servers, codebase exploration",
+        "domain_weights": {
+            "Claude Code Configuration & Workflows": 0.40,
+            "Tool Design & MCP Integration": 0.30,
+            "Agentic Architecture & Orchestration": 0.15,
+            "Context Management & Reliability": 0.10,
+            "Prompt Engineering & Structured Output": 0.05,
+        },
+    },
+    {
+        "name": "Claude Code for Continuous Integration",
+        "summary": "CI/CD review, test generation, PR feedback",
+        "domain_weights": {
+            "Claude Code Configuration & Workflows": 0.50,
+            "Prompt Engineering & Structured Output": 0.20,
+            "Tool Design & MCP Integration": 0.15,
+            "Agentic Architecture & Orchestration": 0.10,
+            "Context Management & Reliability": 0.05,
+        },
+    },
+    {
+        "name": "Structured Data Extraction",
+        "summary": "JSON schemas, validation-retry loops, edge-case handling",
+        "domain_weights": {
+            "Prompt Engineering & Structured Output": 0.55,
+            "Context Management & Reliability": 0.20,
+            "Tool Design & MCP Integration": 0.15,
+            "Agentic Architecture & Orchestration": 0.05,
+            "Claude Code Configuration & Workflows": 0.05,
+        },
+    },
+]
+SCENARIO_PRACTICE_QUESTION_COUNT = 20  # a focused set, not a full 60-item mock
+
 st.set_page_config(
     page_title="Claude Certified Architect - Study Guide",
     page_icon="🏛️",
@@ -336,6 +410,55 @@ def load_claude_code_reference() -> dict:
 
 ALL_QUESTIONS = load_questions()
 
+# ─── Scenario practice ──────────────────────────────────────────────────────
+
+
+def combine_scenario_domain_weights(scenario_names: list[str]) -> dict[str, float]:
+    """Average the domain-weight profiles of the given scenarios into one normalized
+    profile (renormalized defensively against float drift; degenerate/empty input
+    yields all-zero weights)."""
+    chosen = [s for s in SCENARIOS if s["name"] in scenario_names]
+    combined = {d: 0.0 for d in DOMAIN_WEIGHTS}
+    for s in chosen:
+        for d, w in s["domain_weights"].items():
+            combined[d] += w
+    total = sum(combined.values())
+    return {d: w / total for d, w in combined.items()} if total else combined
+
+
+def sample_scenario_pool(scenario_names: list[str], count: int) -> list[dict]:
+    """Stratified sample of `count` questions drawn from each domain in proportion to
+    the combined domain-weight profile of the given scenarios. Target counts per domain
+    are rounded via largest-remainder so they sum to exactly `count`; any shortfall (a
+    domain running out of unique questions) is topped up from the rest of the bank."""
+    weights = combine_scenario_domain_weights(scenario_names)
+    by_domain: dict[str | None, list[dict]] = {}
+    for q in ALL_QUESTIONS:
+        by_domain.setdefault(q.get("domain"), []).append(q)
+    for qs in by_domain.values():
+        random.shuffle(qs)
+
+    raw = {d: weights.get(d, 0) * count for d in DOMAIN_WEIGHTS}
+    target = {d: int(raw[d]) for d in raw}
+    remainder = count - sum(target.values())
+    for d in sorted(raw, key=lambda d: raw[d] - target[d], reverse=True)[:remainder]:
+        target[d] += 1
+
+    pool, used_ids = [], set()
+    for d, n in target.items():
+        chosen = by_domain.get(d, [])[:n]
+        pool.extend(chosen)
+        used_ids.update(q["id"] for q in chosen)
+
+    if len(pool) < count:
+        leftover = [q for q in ALL_QUESTIONS if q["id"] not in used_ids]
+        random.shuffle(leftover)
+        pool.extend(leftover[: count - len(pool)])
+
+    random.shuffle(pool)
+    return pool[:count]
+
+
 # ─── Checkpoint & session log helpers ───────────────────────────────────────
 
 
@@ -493,9 +616,10 @@ def init_state() -> None:
         "session_id": None,
         "session_finished": False,
         "git_push_status": None,
-        "exam_type": "learning",   # "learning", "timed", or "drill"
+        "exam_type": "learning",   # "learning", "timed", "drill", or "scenario"
         "exam_deadline": None,     # epoch seconds when a timed exam auto-submits
         "time_expired": False,
+        "scenario_random_draw": random.sample([s["name"] for s in SCENARIOS], k=4),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -679,20 +803,22 @@ def render_stat_cards(items: list[tuple]) -> None:
 # ─── Exam flow helpers ──────────────────────────────────────────────────────
 
 
-def start_exam(exam_type: str = "learning", drill_pool: list[dict] | None = None) -> None:
+def start_exam(exam_type: str = "learning", external_pool: list[dict] | None = None) -> None:
     """exam_type "learning": untimed, draws from not-yet-covered questions, tracked
     in the checkpoint. "timed": a fixed-size, fixed-duration mock exam that mirrors
     the real CCA-F exam — always a fresh random draw from the full bank, and never
     marks questions as covered so it doesn't interfere with Learning Mode's pool.
     "drill": untimed, replays a specific learner's questions currently due for
-    spaced-repetition review (see compute_drill_queue) — also never touches the
-    shared checkpoint."""
+    spaced-repetition review (see compute_drill_queue). "scenario": untimed, a
+    domain-weighted practice set for one or more named exam scenarios (see
+    sample_scenario_pool). Both "drill" and "scenario" take their question set via
+    `external_pool` and never touch the shared checkpoint."""
     if exam_type == "timed":
         count = min(TIMED_EXAM_QUESTION_COUNT, len(ALL_QUESTIONS))
         pool = random.sample(ALL_QUESTIONS, count)
         st.session_state.exam_deadline = time.time() + TIMED_EXAM_TIME_LIMIT_MIN * 60
-    elif exam_type == "drill":
-        pool = list(drill_pool or [])
+    elif exam_type in ("drill", "scenario"):
+        pool = list(external_pool or [])
         if st.session_state.shuffle:
             random.shuffle(pool)
         st.session_state.exam_deadline = None
@@ -957,8 +1083,48 @@ if st.session_state.mode == "home":
         if st.button(
             f"🎯 Start Drill Mode ({len(drill_pool)})", width='stretch', disabled=not drill_pool
         ):
-            start_exam("drill", drill_pool=drill_pool)
+            start_exam("drill", external_pool=drill_pool)
             st.rerun()
+
+    st.divider()
+    st.markdown(
+        "<div class='cca-card'><strong>🧩 Scenario Practice</strong><br>"
+        "Untimed practice weighted toward one of the CCA-F's 6 named exam scenarios. Questions "
+        "aren't individually tagged by scenario — this draws a stratified sample from the domains "
+        "each scenario leans on most (see the Exam Blueprint tab), so it's an approximation, not a "
+        "literal scenario-specific question set. Doesn't affect the shared checkpoint."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    scenario_names_all = [s["name"] for s in SCENARIOS]
+    random_draw_label = "🎲 Random draw (4 of 6, mirrors the real exam)"
+    col_scenario_pick, col_scenario_count, col_scenario_reroll = st.columns([3, 1, 1])
+    scenario_choice = col_scenario_pick.selectbox(
+        "Scenario", options=[random_draw_label] + scenario_names_all, key="scenario_picker",
+    )
+    scenario_count = col_scenario_count.number_input(
+        "Questions", min_value=5, max_value=len(ALL_QUESTIONS),
+        value=min(SCENARIO_PRACTICE_QUESTION_COUNT, len(ALL_QUESTIONS)), step=5,
+    )
+    if scenario_choice == random_draw_label:
+        if col_scenario_reroll.button("🎲 Re-roll", width='stretch'):
+            st.session_state.scenario_random_draw = random.sample(scenario_names_all, k=4)
+            st.rerun()
+        active_scenarios = st.session_state.scenario_random_draw
+        st.caption("This session's draw: " + ", ".join(active_scenarios))
+    else:
+        active_scenarios = [scenario_choice]
+        summary = next(s["summary"] for s in SCENARIOS if s["name"] == scenario_choice)
+        st.caption(summary)
+
+    weight_preview = combine_scenario_domain_weights(active_scenarios)
+    top_domains = sorted(weight_preview.items(), key=lambda kv: -kv[1])[:3]
+    st.caption(
+        "Emphasizes: " + ", ".join(f"{d} ({w:.0%})" for d, w in top_domains if w > 0)
+    )
+    if st.button("🧩 Start Scenario Practice", width='stretch'):
+        start_exam("scenario", external_pool=sample_scenario_pool(active_scenarios, int(scenario_count)))
+        st.rerun()
 
 # ─── EXAM ───────────────────────────────────────────────────────────────────
 
@@ -1046,6 +1212,7 @@ elif st.session_state.mode == "results":
     hero_title = (
         "🕒 Mock Exam Results" if is_timed_result
         else "🎯 Drill Session Results" if st.session_state.exam_type == "drill"
+        else "🧩 Scenario Practice Results" if st.session_state.exam_type == "scenario"
         else "📊 Session Results"
     )
     st.markdown(
@@ -1304,16 +1471,12 @@ elif st.session_state.mode == "materials":
             ("720 / 1000", "Passing scaled score"),
         ])
         st.write("")
-        st.markdown("**Exam scenarios** — 4 of the following 6 scenarios appear on any given exam:")
         st.markdown(
-            """
-            1. **Customer Support Resolution Agent** — Agent SDK, MCP tools, escalation & first-contact resolution
-            2. **Code Generation with Claude Code** — slash commands, CLAUDE.md, plan mode vs direct execution
-            3. **Multi-Agent Research System** — coordinator/subagent orchestration, source provenance
-            4. **Developer Productivity with Claude** — built-in tools, MCP servers, codebase exploration
-            5. **Claude Code for Continuous Integration** — CI/CD review, test generation, PR feedback
-            6. **Structured Data Extraction** — JSON schemas, validation-retry loops, edge-case handling
-            """
+            "**Exam scenarios** — 4 of the following 6 scenarios appear on any given exam. "
+            "Practice any of them (or a random draw of 4) from Home under Scenario Practice:"
+        )
+        st.markdown(
+            "\n".join(f"{i}. **{s['name']}** — {s['summary']}" for i, s in enumerate(SCENARIOS, start=1))
         )
 
     with tabs[-2]:

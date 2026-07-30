@@ -285,6 +285,69 @@ def test_compute_drill_queue_handles_logs_missing_date_key(fixture_questions):
     assert [q["id"] for q in queue] == [1]
 
 
+# ─── scenario practice ───────────────────────────────────────────────────────
+
+SCENARIO_A_HEAVY = {"name": "A-Heavy", "summary": "", "domain_weights": {"Domain A": 1.0, "Domain B": 0.0}}
+SCENARIO_B_HEAVY = {"name": "B-Heavy", "summary": "", "domain_weights": {"Domain A": 0.0, "Domain B": 1.0}}
+SCENARIO_MIXED = {"name": "Mixed", "summary": "", "domain_weights": {"Domain A": 0.5, "Domain B": 0.5}}
+
+
+@pytest.fixture
+def fixture_scenarios(monkeypatch):
+    monkeypatch.setattr(app, "DOMAIN_WEIGHTS", {"Domain A": 0.5, "Domain B": 0.5})
+    monkeypatch.setattr(app, "SCENARIOS", [SCENARIO_A_HEAVY, SCENARIO_B_HEAVY, SCENARIO_MIXED])
+    return app.SCENARIOS
+
+
+def test_combine_scenario_domain_weights_matches_single_scenario_profile(fixture_scenarios):
+    assert app.combine_scenario_domain_weights(["A-Heavy"]) == {"Domain A": 1.0, "Domain B": 0.0}
+
+
+def test_combine_scenario_domain_weights_averages_multiple_scenarios(fixture_scenarios):
+    weights = app.combine_scenario_domain_weights(["A-Heavy", "B-Heavy"])
+    assert weights == {"Domain A": 0.5, "Domain B": 0.5}
+
+
+def test_combine_scenario_domain_weights_empty_input_is_all_zero(fixture_scenarios):
+    assert app.combine_scenario_domain_weights([]) == {"Domain A": 0.0, "Domain B": 0.0}
+
+
+def test_sample_scenario_pool_returns_exact_requested_count(fixture_scenarios):
+    questions = (
+        [{"id": i, "domain": "Domain A"} for i in range(1, 11)]
+        + [{"id": i, "domain": "Domain B"} for i in range(11, 21)]
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app, "ALL_QUESTIONS", questions)
+        pool = app.sample_scenario_pool(["Mixed"], 6)
+    assert len(pool) == 6
+    assert len({q["id"] for q in pool}) == 6  # no duplicates
+
+
+def test_sample_scenario_pool_stratifies_toward_the_heavier_domain(fixture_scenarios):
+    questions = (
+        [{"id": i, "domain": "Domain A"} for i in range(1, 21)]
+        + [{"id": i, "domain": "Domain B"} for i in range(21, 41)]
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app, "ALL_QUESTIONS", questions)
+        pool = app.sample_scenario_pool(["A-Heavy"], 10)
+    assert all(q["domain"] == "Domain A" for q in pool)
+
+
+def test_sample_scenario_pool_tops_up_when_a_domain_runs_short(fixture_scenarios):
+    # only 2 Domain A questions exist, but the profile wants all 10 from Domain A
+    questions = (
+        [{"id": i, "domain": "Domain A"} for i in range(1, 3)]
+        + [{"id": i, "domain": "Domain B"} for i in range(3, 23)]
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(app, "ALL_QUESTIONS", questions)
+        pool = app.sample_scenario_pool(["A-Heavy"], 10)
+    assert len(pool) == 10
+    assert len({q["id"] for q in pool}) == 10
+
+
 # ─── aggregate_domain_stats_from_logs ───────────────────────────────────────
 
 
