@@ -22,6 +22,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import altair as alt
+import pandas as pd
 import pdfplumber
 import streamlit as st
 from streamlit_pdf_viewer import pdf_viewer
@@ -139,19 +141,63 @@ st.set_page_config(
 # accent leaned on Anthropic's own brand color, which reads oddly now that the
 # generator supports OpenAI and Gemini too). Colors are expressed as CSS
 # variables so every component restyles from one place.
+#
+# Light/dark mode is driven entirely from Python (st.session_state.theme),
+# not Streamlit's own hidden theme menu or client-side JS — get_theme_css()
+# picks one variable set and re-injects the whole stylesheet on every rerun,
+# which also lets us reskin native widgets (inputs, buttons, sidebar) instead
+# of only our own .cca-* components.
 
-THEME_CSS = """
+THEME_VARS = {
+    "light": {
+        "bg": "#f7f9fc",
+        "surface": "#ffffff",
+        "sidebar-bg": "#ffffff",
+        "text": "#0f172a",
+        "text-muted": "rgba(15, 23, 42, 0.6)",
+        "border": "rgba(15, 23, 42, 0.1)",
+        "card-bg": "rgba(15, 23, 42, 0.03)",
+        "input-bg": "#ffffff",
+        "accent": "#0d9488",
+        "accent-2": "#0891b2",
+        "accent-soft": "rgba(13, 148, 136, 0.1)",
+        "shadow": "rgba(15, 23, 42, 0.08)",
+        "correct-bg": "rgba(22, 163, 74, 0.12)",
+        "correct-border": "rgba(22, 163, 74, 0.45)",
+        "wrong-bg": "rgba(220, 38, 38, 0.1)",
+        "wrong-border": "rgba(220, 38, 38, 0.4)",
+        "hero-from": "#0f172a",
+        "hero-to": "#0d9488",
+    },
+    "dark": {
+        "bg": "#0b1220",
+        "surface": "#111827",
+        "sidebar-bg": "#0b1220",
+        "text": "#e5eaf1",
+        "text-muted": "rgba(226, 232, 240, 0.65)",
+        "border": "rgba(255, 255, 255, 0.1)",
+        "card-bg": "rgba(255, 255, 255, 0.045)",
+        "input-bg": "#1e293b",
+        "accent": "#2dd4bf",
+        "accent-2": "#38bdf8",
+        "accent-soft": "rgba(45, 212, 191, 0.16)",
+        "shadow": "rgba(0, 0, 0, 0.5)",
+        "correct-bg": "rgba(34, 197, 94, 0.16)",
+        "correct-border": "rgba(34, 197, 94, 0.5)",
+        "wrong-bg": "rgba(248, 113, 113, 0.14)",
+        "wrong-border": "rgba(248, 113, 113, 0.45)",
+        "hero-from": "#0b1220",
+        "hero-to": "#0f766e",
+    },
+}
+
+
+CSS_TEMPLATE = """
 <style>
 :root {
-    --cca-accent: #0d9488;
-    --cca-accent-soft: rgba(13, 148, 136, 0.14);
-    --cca-correct-bg: rgba(34, 153, 84, 0.16);
-    --cca-correct-border: rgba(34, 153, 84, 0.55);
-    --cca-wrong-bg: rgba(220, 38, 38, 0.14);
-    --cca-wrong-border: rgba(220, 38, 38, 0.5);
-    --cca-card-bg: rgba(127, 127, 127, 0.06);
-    --cca-card-border: rgba(127, 127, 127, 0.18);
-    --cca-text-muted: rgba(127, 127, 127, 0.9);
+__ROOT_VARS__
+    --cca-accent-rgb: __ACCENT_RGB__;
+    --cca-card-border: var(--cca-border);
 }
 
 @keyframes ccaFadeInUp {
@@ -169,31 +215,93 @@ THEME_CSS = """
     100% { transform: scale(1); }
 }
 
+/* App-wide reskin: driven entirely by our own --cca-* variables rather than
+   Streamlit's own (fixed-light) theme, so the sidebar toggle genuinely
+   changes the whole app, not just the .cca-* component classes below. */
+.stApp {
+    background: var(--cca-bg) !important;
+}
+.stApp, .stApp p, .stApp li, .stApp span, .stApp label, .stMarkdown, h1, h2, h3, h4, h5, h6 {
+    color: var(--cca-text);
+}
+section[data-testid="stSidebar"] {
+    background: var(--cca-sidebar-bg) !important;
+    border-right: 1px solid var(--cca-border);
+}
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    background: transparent !important;
+}
+[data-testid="stHeader"] * { color: var(--cca-text) !important; }
+hr { border-color: var(--cca-border) !important; }
+
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stNumberInput"] input,
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] {
+    background: var(--cca-input-bg) !important;
+    color: var(--cca-text) !important;
+    border-color: var(--cca-border) !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus,
+div[data-testid="stNumberInput"] input:focus {
+    border-color: var(--cca-accent) !important;
+    box-shadow: 0 0 0 1px var(--cca-accent) !important;
+}
+div[data-testid="stToggle"] label div[data-checked="true"] {
+    background-color: var(--cca-accent) !important;
+}
+div[data-testid="stMetricValue"] { color: var(--cca-text) !important; }
+div[data-testid="stMetricLabel"] { color: var(--cca-text-muted) !important; }
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    color: var(--cca-accent) !important;
+    border-color: var(--cca-accent) !important;
+}
+a { color: var(--cca-accent) !important; }
+
 .cca-hero {
-    background: linear-gradient(120deg, #1e293b 0%, var(--cca-accent) 55%, #1e293b 100%);
+    background: linear-gradient(120deg, var(--cca-hero-from) 0%, var(--cca-hero-to) 55%, var(--cca-hero-from) 100%);
     background-size: 200% 200%;
-    animation: ccaGradientShift 10s ease infinite, ccaFadeInUp 0.5s ease both;
-    border-radius: 16px;
-    padding: 1.8rem 2.2rem;
+    animation: ccaGradientShift 12s ease infinite, ccaFadeInUp 0.5s ease both;
+    border-radius: 18px;
+    padding: 2rem 2.4rem;
     color: #fff !important;
     margin-bottom: 1.2rem;
-    box-shadow: 0 8px 24px rgba(13, 148, 136, 0.18);
+    box-shadow: 0 10px 30px rgba(var(--cca-accent-rgb), 0.25);
 }
 .cca-hero h1, .cca-hero p { color: #fff !important; margin: 0; }
 .cca-hero p { opacity: 0.92; margin-top: 0.4rem; }
+.cca-hero .cca-hero-meta {
+    display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.9rem;
+}
+.cca-hero .cca-hero-pill {
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    backdrop-filter: blur(6px);
+}
 
 .cca-card {
     background: var(--cca-card-bg);
     border: 1px solid var(--cca-card-border);
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 1.4rem 1.6rem;
     margin: 0.6rem 0 1.3rem 0;
     font-size: 1.08rem;
     line-height: 1.65;
+    box-shadow: 0 2px 10px var(--cca-shadow);
     animation: ccaFadeInUp 0.35s ease both;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
-.cca-card:hover { border-color: var(--cca-accent); }
+.cca-card:hover {
+    border-color: var(--cca-accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px var(--cca-shadow);
+}
 
 /* Equal-height cards across a row of st.columns(): Streamlit already stretches each
    stColumn to the tallest column's height, but a card's own box only sizes to its
@@ -326,16 +434,27 @@ div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-c
 
 /* Buttons: consistent lift-on-hover across the whole app */
 .stButton > button {
+    background: var(--cca-surface) !important;
+    color: var(--cca-text) !important;
+    border: 1px solid var(--cca-border) !important;
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease !important;
+}
+.stButton > button[kind="primary"] {
+    background: var(--cca-accent) !important;
+    color: #fff !important;
+    border: 1px solid var(--cca-accent) !important;
+}
+.stButton > button:disabled {
+    opacity: 0.45;
 }
 .stButton > button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 14px rgba(13, 148, 136, 0.18);
+    box-shadow: 0 6px 14px rgba(var(--cca-accent-rgb), 0.18);
     border-color: var(--cca-accent) !important;
     color: var(--cca-accent) !important;
 }
 .stButton > button[kind="primary"]:hover {
-    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.35);
+    box-shadow: 0 6px 16px rgba(var(--cca-accent-rgb), 0.35);
     filter: brightness(1.06);
     color: #fff !important;
 }
@@ -365,6 +484,7 @@ div[data-testid="stProgress"] > div > div > div {
 div[data-testid="stExpander"] {
     border: 1px solid var(--cca-card-border) !important;
     border-radius: 12px !important;
+    background: var(--cca-card-bg);
     overflow: hidden;
 }
 
@@ -381,10 +501,36 @@ section[data-testid="stSidebar"] button {
     align-items: center;
     justify-content: center;
 }
+
+/* Theme toggle: a compact icon button pinned at the top of the sidebar */
+.cca-theme-toggle button {
+    height: 2.4rem !important;
+    font-size: 1.1rem !important;
+}
+
+/* Streak pill on Home — a small nudge to keep the daily habit going */
+.cca-streak-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--cca-accent-soft);
+    color: var(--cca-accent);
+    border: 1px solid var(--cca-accent);
+}
 </style>
 """
 
-st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+def render_theme_css() -> None:
+    v = THEME_VARS[st.session_state.theme]
+    root_vars = "\n".join(f"    --cca-{k}: {val};" for k, val in v.items())
+    accent_rgb = "13, 148, 136" if st.session_state.theme == "light" else "45, 212, 191"
+    css = CSS_TEMPLATE.replace("__ROOT_VARS__", root_vars).replace("__ACCENT_RGB__", accent_rgb)
+    st.markdown(css, unsafe_allow_html=True)
 
 # ─── Storage & data loaders ─────────────────────────────────────────────────
 
@@ -661,6 +807,33 @@ def summarize_logs(logs: list[dict]) -> dict:
     }
 
 
+def compute_study_streak(logs: list[dict], learner_id: str = "", now: datetime | None = None) -> int:
+    """Consecutive-day study streak ending today or yesterday (a session done
+    yesterday but not yet today doesn't break the streak until a full day is
+    missed) — a lightweight nudge to keep learners coming back daily. Filters
+    to a learner's own logs when a learner_id is given, otherwise cohort-wide."""
+    now = now or datetime.now()
+    relevant = [l for l in logs if not learner_id or l.get("learner_id") == learner_id]
+    days = set()
+    for log in relevant:
+        try:
+            days.add(datetime.strptime(log["date"][:10], "%Y-%m-%d").date())
+        except (KeyError, ValueError):
+            continue
+    if not days:
+        return 0
+
+    today = now.date()
+    cursor = today if today in days else today - timedelta(days=1)
+    if cursor not in days:
+        return 0
+    streak = 0
+    while cursor in days:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
+
+
 def focus_areas_from_domain_stats(domain_stats: dict) -> list[str]:
     return [
         dom for dom, s in domain_stats.items()
@@ -865,6 +1038,7 @@ def init_state() -> None:
         "time_expired": False,
         "scenario_random_draw": random.sample([s["name"] for s in SCENARIOS], k=4),
         "materials_view": "gallery",   # "gallery" (browsable landing page) or "detail" (one section)
+        "theme": "dark",   # "light" or "dark" — toggled from the sidebar, see render_theme_css()
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -872,6 +1046,7 @@ def init_state() -> None:
 
 
 init_state()
+render_theme_css()
 
 # ─── Rendering helpers (shared by exam mode and review mode) ───────────────
 
@@ -1045,6 +1220,31 @@ def render_stat_cards(items: list[tuple]) -> None:
             unsafe_allow_html=True,
         )
 
+
+def render_score_trend_chart(trend_rows: list[dict]) -> None:
+    """Score-by-session line chart, built with Altair (not st.line_chart) so its
+    background/axes/gridlines follow our own theme toggle — st.line_chart bakes
+    in Streamlit's fixed config.toml theme (always light) regardless of our
+    runtime dark/light state, which left a jarring white box in dark mode."""
+    v = THEME_VARS[st.session_state.theme]
+    df = pd.DataFrame(trend_rows).reset_index().rename(columns={"index": "Session"})
+    df["Session"] = df["Session"] + 1
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=True, color=v["accent"])
+        .encode(
+            x=alt.X("Session:O", title="Session #"),
+            y=alt.Y("Score %:Q", title="Score %", scale=alt.Scale(domain=[0, 100])),
+            tooltip=["Session", "Date", "Cohort", "Score %"],
+        )
+        .properties(height=280, background="transparent")
+        .configure_axis(
+            labelColor=v["text-muted"], titleColor=v["text-muted"], gridColor=v["border"], domainColor=v["border"],
+        )
+        .configure_view(strokeWidth=0)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
 # ─── Exam flow helpers ──────────────────────────────────────────────────────
 
 
@@ -1115,8 +1315,17 @@ def finish_session() -> None:
 # ─── Sidebar ────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.title("🏛️ CCA-F Study Guide")
-    st.caption("Claude Certified Architect – Foundations")
+    col_title, col_theme = st.columns([5, 1])
+    with col_title:
+        st.title("🏛️ CCA-F Study Guide")
+        st.caption("Claude Certified Architect – Foundations")
+    with col_theme:
+        st.markdown("<div class='cca-theme-toggle'>", unsafe_allow_html=True)
+        theme_icon = "☀️" if st.session_state.theme == "dark" else "🌙"
+        if st.button(theme_icon, key="theme_toggle", help="Switch light / dark mode", width='stretch'):
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     st.divider()
 
     if st.session_state.mode != "exam":
@@ -1267,9 +1476,18 @@ with st.sidebar:
 # ─── HOME ───────────────────────────────────────────────────────────────────
 
 if st.session_state.mode == "home":
+    all_logs_home = STORAGE.read_all_session_logs()
+    streak = compute_study_streak(all_logs_home, st.session_state.learner_id)
+    streak_pill = (
+        f"<span class='cca-hero-pill'>🔥 {streak}-day streak</span>" if streak > 0
+        else "<span class='cca-hero-pill'>✨ Start today's streak</span>"
+    )
     st.markdown(
         f"<div class='cca-hero'><h1>🏛️ Claude Certified Architect – Foundations</h1>"
-        f"<p>Welcome, {st.session_state.cohort_name}!</p></div>",
+        f"<p>Welcome back, {st.session_state.cohort_name}!</p>"
+        f"<div class='cca-hero-meta'>{streak_pill}"
+        f"<span class='cca-hero-pill'>📚 {len(ALL_QUESTIONS)} questions</span>"
+        f"<span class='cca-hero-pill'>🎯 {PASS_THRESHOLD_PCT}% to pass</span></div></div>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -1297,6 +1515,7 @@ if st.session_state.mode == "home":
         (len(ALL_QUESTIONS), "Total Questions"),
         (used_count, "Already Covered"),
         (len(unused), "Available Today"),
+        (f"🔥 {streak}" if streak else "—", "Day Streak"),
     ])
 
     if not unused:
@@ -1948,7 +2167,7 @@ elif st.session_state.mode == "progress":
             for log in logs
         ]
         st.dataframe(trend_rows, width='stretch', hide_index=True)
-        st.line_chart({"Score %": [r["Score %"] for r in trend_rows]})
+        render_score_trend_chart(trend_rows)
 
         st.divider()
         st.subheader("📄 Study Report")
