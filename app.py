@@ -399,6 +399,30 @@ div[data-testid="stElementContainer"]:has(> div[data-testid="stMarkdown"] .cca-c
     border-color: var(--cca-card-border);
     color: var(--cca-text-muted);
 }
+.cca-badge-flag {
+    background: var(--cca-wrong-bg);
+    border-color: var(--cca-wrong-border);
+    color: inherit;
+}
+
+.cca-scenario-pane {
+    background: var(--cca-card-bg);
+    border: 1px solid var(--cca-card-border);
+    border-radius: 16px;
+    padding: 1.4rem 1.6rem;
+    box-shadow: 0 2px 10px var(--cca-shadow);
+    max-height: 640px;
+    overflow-y: auto;
+    line-height: 1.7;
+    font-size: 1.02rem;
+}
+.cca-scenario-pane h4 {
+    margin-top: 0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--cca-text-muted);
+}
 .cca-stat-card {
     background: var(--cca-card-bg);
     border: 1px solid var(--cca-card-border);
@@ -1037,6 +1061,8 @@ def init_state() -> None:
         "exam_deadline": None,     # epoch seconds when a timed exam auto-submits
         "time_expired": False,
         "scenario_random_draw": random.sample([s["name"] for s in SCENARIOS], k=4),
+        "flagged": set(),          # idx -> flagged for review, timed mock exam only
+        "scratchpad": {},          # idx -> scratch-pad text, timed mock exam only
         "materials_view": "gallery",   # "gallery" (browsable landing page) or "detail" (one section)
         "theme": "dark",   # "light" or "dark" — toggled from the sidebar, see render_theme_css()
     }
@@ -1099,6 +1125,22 @@ def render_choice_rows(
                 f"<div class='cca-choice'>&nbsp;&nbsp;&nbsp;<strong>{letter}.</strong> {text}</div>",
                 unsafe_allow_html=True,
             )
+
+
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z(])")
+
+
+def split_scenario_and_question(question_text: str) -> tuple[str, str]:
+    """Question bank entries are one flat string: a scenario narrative followed by
+    the actual ask, usually ending in the final '?'. Splits off that last sentence
+    as "the question" so a mock-exam layout can show the narrative in a separate
+    scenario pane, matching the real proctored exam's two-pane screen. Falls back to
+    (empty scenario, whole text) when there's only one sentence to split — e.g. a
+    short, self-contained question with no narrative setup."""
+    sentences = SENTENCE_SPLIT_RE.split(question_text.strip())
+    if len(sentences) < 2:
+        return "", question_text.strip()
+    return " ".join(sentences[:-1]).strip(), sentences[-1].strip()
 
 
 VERDICT_RE = re.compile(r"(✅\s*Correct\.?|❌\s*Incorrect\.?|\bCorrect\.|\bIncorrect\.)", re.I)
@@ -1278,6 +1320,8 @@ def start_exam(exam_type: str = "learning", external_pool: list[dict] | None = N
     st.session_state.questions = pool
     st.session_state.current_idx = 0
     st.session_state.answers = {}
+    st.session_state.flagged = set()
+    st.session_state.scratchpad = {}
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.session_state.session_finished = False
     st.session_state.time_expired = False
@@ -1422,15 +1466,21 @@ with st.sidebar:
         st.progress(answered / total if total else 0)
         st.divider()
 
+        if is_timed and st.session_state.flagged:
+            st.caption(f"🚩 {len(st.session_state.flagged)} flagged for review")
+
         st.subheader("Navigator")
         cols = st.columns(4)
         for i in range(total):
             col = cols[i % 4]
+            flagged = is_timed and i in st.session_state.flagged
             if i in st.session_state.answers:
                 if is_timed:
-                    label = "●"  # answered, but no correctness reveal mid-exam
+                    label = "●🚩" if flagged else "●"  # answered, but no correctness reveal mid-exam
                 else:
                     label = "✅" if st.session_state.answers[i] == questions[i]["correct"] else "❌"
+            elif flagged:
+                label = f"{i + 1}🚩"
             elif i == st.session_state.current_idx:
                 label = f"**{i + 1}**"
             else:
@@ -1438,6 +1488,13 @@ with st.sidebar:
             if col.button(label, key=f"nav_{i}", width='stretch'):
                 st.session_state.current_idx = i
                 st.rerun()
+
+        if is_timed and st.session_state.flagged:
+            with st.expander(f"🚩 Review flagged ({len(st.session_state.flagged)})"):
+                for i in sorted(st.session_state.flagged):
+                    if st.button(f"Q{i + 1}", key=f"jump_flag_{i}", width='stretch'):
+                        st.session_state.current_idx = i
+                        st.rerun()
 
         st.divider()
         finish_label = "🏁 Submit Exam" if is_timed else "🏁 Finish Session"
@@ -1641,55 +1698,131 @@ elif st.session_state.mode == "exam":
     if is_timed:
         render_countdown_clock(st.session_state.exam_deadline, TIMED_EXAM_TIME_LIMIT_MIN * 60)
 
-    prev_clicked, next_clicked = render_nav_header("exam", idx, total, f"### Question {idx + 1} of {total}", q)
-    if prev_clicked:
-        st.session_state.current_idx -= 1
-        st.rerun()
-    if next_clicked:
-        st.session_state.current_idx += 1
-        st.rerun()
+        # Real proctored CCA-F screens split a scenario narrative (left pane) from the
+        # actual question + answer choices (right pane) — mirror that here instead of
+        # the single stacked card used by Learning/Drill/Review modes.
+        scenario_text, question_text = split_scenario_and_question(q["question"])
 
-    st.markdown(f"<div class='cca-card'><strong>{q['question']}</strong></div>", unsafe_allow_html=True)
-
-    if already_answered:
-        render_choice_rows(q, chosen, tag_chosen_answer=False, reveal_correct=not is_timed)
-
-        if is_timed:
-            st.caption("☑️ Answer recorded — results and explanations are shown once you submit the exam.")
-        elif st.session_state.show_explanation:
-            st.write("")
-            is_correct = chosen == q["correct"]
-            banner_class = "cca-banner-pass" if is_correct else "cca-banner-fail"
-            banner_text = (
-                "✅ Correct!" if is_correct
-                else f"❌ Incorrect — correct answer: <strong>{q['correct']}. {q['choices'][q['correct']]}</strong>"
-            )
-            st.markdown(f"<div class='cca-banner {banner_class}'>{banner_text}</div>", unsafe_allow_html=True)
-            with st.expander("📖 Explanation", expanded=True):
-                render_explanation_block(q)
-
-        st.write("")
-        if idx < total - 1:
-            if st.button("Next Question ▶", type="primary"):
-                st.session_state.current_idx += 1
+        col_title, col_flag, col_prev, col_next = st.columns([5, 2, 1, 1])
+        with col_title:
+            st.markdown(f"### Question {idx + 1} of {total}")
+            domain = q.get("domain")
+            badge_html = f"<span class='cca-badge'>{domain}</span> " if domain else ""
+            badge_html += f"<span class='cca-badge cca-badge-muted'>Q#{q['id']}</span>"
+            st.markdown(badge_html, unsafe_allow_html=True)
+        with col_flag:
+            is_flagged = idx in st.session_state.flagged
+            flag_label = "🚩 Flagged" if is_flagged else "🏳️ Flag for review"
+            if st.button(flag_label, key=f"flag_{idx}", width='stretch', type="primary" if is_flagged else "secondary"):
+                if is_flagged:
+                    st.session_state.flagged.discard(idx)
+                else:
+                    st.session_state.flagged.add(idx)
                 st.rerun()
+        with col_prev:
+            prev_clicked = st.button("◀ Prev", disabled=idx == 0, width='stretch', key="exam_prev")
+        with col_next:
+            next_clicked = st.button("Next ▶", disabled=idx == total - 1, width='stretch', key="exam_next")
+        if prev_clicked:
+            st.session_state.current_idx -= 1
+            st.rerun()
+        if next_clicked:
+            st.session_state.current_idx += 1
+            st.rerun()
+
+        if scenario_text:
+            col_scenario, col_question = st.columns([2, 3])
         else:
-            finish_label = "Submit Exam" if is_timed else "Finish Session"
-            st.info(f"You've reached the last question. Click **{finish_label}** in the sidebar to save results.")
+            col_scenario, col_question = None, st.container()
+
+        if col_scenario is not None:
+            with col_scenario:
+                st.markdown(
+                    f"<div class='cca-scenario-pane'><h4>Scenario</h4>{scenario_text}</div>",
+                    unsafe_allow_html=True,
+                )
+                with st.expander("📝 Scratch pad"):
+                    st.session_state.scratchpad[idx] = st.text_area(
+                        "Scratch pad", value=st.session_state.scratchpad.get(idx, ""),
+                        key=f"scratch_{idx}", label_visibility="collapsed", height=160,
+                        placeholder="Jot down notes, elimination reasoning, etc. — not graded, not saved after the exam.",
+                    )
+
+        with col_question:
+            st.markdown(f"<div class='cca-card'><strong>{question_text}</strong></div>", unsafe_allow_html=True)
+
+            if already_answered:
+                render_choice_rows(q, chosen, tag_chosen_answer=False, reveal_correct=False)
+                st.caption("☑️ Answer recorded — results and explanations are shown once you submit the exam.")
+
+                st.write("")
+                if idx < total - 1:
+                    if st.button("Next Question ▶", type="primary"):
+                        st.session_state.current_idx += 1
+                        st.rerun()
+                else:
+                    st.info("You've reached the last question. Click **Submit Exam** in the sidebar to save results.")
+            else:
+                choice_labels = [f"{letter}. {text}" for letter, text in q["choices"].items()]
+                choice_keys = list(q["choices"].keys())
+
+                selected_label = st.radio(
+                    "Select your answer:", options=choice_labels, index=None, key=f"radio_{idx}"
+                )
+
+                st.write("")
+                if st.button("Submit Answer", type="primary", disabled=selected_label is None):
+                    selected_letter = choice_keys[choice_labels.index(selected_label)]
+                    st.session_state.answers[idx] = selected_letter
+                    st.rerun()
 
     else:
-        choice_labels = [f"{letter}. {text}" for letter, text in q["choices"].items()]
-        choice_keys = list(q["choices"].keys())
-
-        selected_label = st.radio("Select your answer:", options=choice_labels, index=None, key=f"radio_{idx}")
-
-        st.write("")
-        if st.button("Submit Answer", type="primary", disabled=selected_label is None):
-            selected_letter = choice_keys[choice_labels.index(selected_label)]
-            st.session_state.answers[idx] = selected_letter
-            if st.session_state.exam_type == "learning":
-                STORAGE.save_checkpoint_entry(q["id"])  # persisted immediately so a mid-session exit isn't lost
+        prev_clicked, next_clicked = render_nav_header("exam", idx, total, f"### Question {idx + 1} of {total}", q)
+        if prev_clicked:
+            st.session_state.current_idx -= 1
             st.rerun()
+        if next_clicked:
+            st.session_state.current_idx += 1
+            st.rerun()
+
+        st.markdown(f"<div class='cca-card'><strong>{q['question']}</strong></div>", unsafe_allow_html=True)
+
+        if already_answered:
+            render_choice_rows(q, chosen, tag_chosen_answer=False, reveal_correct=True)
+
+            if st.session_state.show_explanation:
+                st.write("")
+                is_correct = chosen == q["correct"]
+                banner_class = "cca-banner-pass" if is_correct else "cca-banner-fail"
+                banner_text = (
+                    "✅ Correct!" if is_correct
+                    else f"❌ Incorrect — correct answer: <strong>{q['correct']}. {q['choices'][q['correct']]}</strong>"
+                )
+                st.markdown(f"<div class='cca-banner {banner_class}'>{banner_text}</div>", unsafe_allow_html=True)
+                with st.expander("📖 Explanation", expanded=True):
+                    render_explanation_block(q)
+
+            st.write("")
+            if idx < total - 1:
+                if st.button("Next Question ▶", type="primary"):
+                    st.session_state.current_idx += 1
+                    st.rerun()
+            else:
+                st.info("You've reached the last question. Click **Finish Session** in the sidebar to save results.")
+
+        else:
+            choice_labels = [f"{letter}. {text}" for letter, text in q["choices"].items()]
+            choice_keys = list(q["choices"].keys())
+
+            selected_label = st.radio("Select your answer:", options=choice_labels, index=None, key=f"radio_{idx}")
+
+            st.write("")
+            if st.button("Submit Answer", type="primary", disabled=selected_label is None):
+                selected_letter = choice_keys[choice_labels.index(selected_label)]
+                st.session_state.answers[idx] = selected_letter
+                if st.session_state.exam_type == "learning":
+                    STORAGE.save_checkpoint_entry(q["id"])  # persisted immediately so a mid-session exit isn't lost
+                st.rerun()
 
 # ─── RESULTS ────────────────────────────────────────────────────────────────
 
