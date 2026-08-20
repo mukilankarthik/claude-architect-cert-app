@@ -1,0 +1,67 @@
+{
+  "headline": "One pass, right before the exam. If you only remember one thing: the model decides, the harness executes — guardrails are code, not prompt wording.",
+  "core_model": [
+    "Loop: context assembly → model call → decision (end_turn / tool_use) → gate check → tool execution → result fed back → repeat until end_turn or exit condition.",
+    "Five actors: User/Entry Point → Harness → Model → Claude API → Tool Backends. The harness is the only one that can enforce a hard rule.",
+    "A gate is a code-level check before a tool executes (spend limit, permission scope). No system-prompt wording is ever a substitute for one."
+  ],
+  "by_domain": [
+    {
+      "domain": "Agentic Architecture & Orchestration",
+      "weight": "27%",
+      "must_know": [
+        "Subagents don't share context automatically — the coordinator must explicitly pass outputs forward.",
+        "Parallelize independent subagent calls; keep orchestration centralized (don't let subagents spawn their own subagents).",
+        "Reflection: coordinator checks output for gaps and re-delegates before moving on.",
+        "Always define an explicit exit condition (resolve or escalate) — never let a loop run to exhaustion with no resolution."
+      ]
+    },
+    {
+      "domain": "Claude Code Configuration & Workflows",
+      "weight": "20%",
+      "must_know": [
+        "CLAUDE.md = prose the model reads, not enforced config. Hooks = actual enforcement on a lifecycle event.",
+        "Split long/conflicting CLAUDE.md files into scoped nested files (500+ lines degrades adherence).",
+        "Plan mode earns its cost on complex/risky changes (touches shared code, auth, many files) — not every edit.",
+        "Slash commands share a reusable workflow; they don't enforce it. Permissions still apply in headless/CI runs."
+      ]
+    },
+    {
+      "domain": "Prompt Engineering & Structured Output",
+      "weight": "20%",
+      "must_know": [
+        "Schema validation catches syntax errors, not semantic ones — add an independent semantic check (do totals reconcile).",
+        "Retry-with-error-feedback fixes format/transient issues, not systematic gaps (info the source never had).",
+        "Enums need an \"other\" catch-all; nullable fields should stay null rather than be fabricated when info is absent.",
+        "Large tool/schema definitions competing with a large document for context can hurt extraction before the window is even full."
+      ]
+    },
+    {
+      "domain": "Tool Design & MCP Integration",
+      "weight": "18%",
+      "must_know": [
+        "Transient errors (timeouts) are retry-safe; permanent/business errors (validation, permission) are not — return distinct types.",
+        "Dry-run/preview is a required gate for destructive tools, and the harness must actually show it before real execution.",
+        "Tool selection accuracy drops as the tool library grows — fix with discovery tools or per-context scoping, not just better descriptions.",
+        "MCP server scope: project (.mcp.json, shared) vs. user (personal/experimental)."
+      ]
+    },
+    {
+      "domain": "Context Management & Reliability",
+      "weight": "15%",
+      "must_know": [
+        "Recall degrades well before the context window is technically full — sliding-window truncation loses info, it doesn't compress it.",
+        "Persistent facts (identity, safety-critical info) must be extracted and carried forward explicitly.",
+        "System prompt adherence drifts over 10-30+ turns — re-anchor or re-inject core instructions periodically.",
+        "Balance clarify-vs-act by the cost of guessing wrong for that specific task — there's no universal right amount of questions."
+      ]
+    }
+  ],
+  "traps": [
+    "\"Strengthen the system prompt\" is almost always the wrong fix when the question describes a hard limit being violated — the right fix is a harness-level gate.",
+    "\"Context window too small\" is a common wrong distractor for a missing-data bug that's actually caused by the coordinator never passing the data at all.",
+    "A dry-run parameter that exists but isn't enforced (the harness executes anyway) doesn't count as a real gate.",
+    "Splitting a code-review prompt by concern (security/API/business logic) fixes the recall-vs-precision tradeoff a single broad reviewer prompt can't.",
+    "Headless/CI Claude Code runs still need permission scoping — no human approver doesn't mean no guardrails."
+  ]
+}

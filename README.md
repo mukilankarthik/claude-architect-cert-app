@@ -26,11 +26,11 @@ Maintained by **Mukilan Karthikeyan** ([mukilankarthikeyan@gmail.com](mailto:muk
 
 ## Features
 
-- **Large practice question bank** — multiple-choice questions covering the full CCA-F blueprint (Agentic Architecture, Tool Design & MCP, Claude Code Configuration, Prompt Engineering, Context Management), each with a detailed, per-choice explanation rendered as its own color-coded block instead of a wall of text
+- **Large practice question bank** — 210 multiple-choice questions covering the full CCA-F blueprint (Agentic Architecture, Tool Design & MCP, Claude Code Configuration, Prompt Engineering, Context Management), each with a detailed, per-choice explanation rendered as its own color-coded block instead of a wall of text
 - **Two study modes** — untimed Learning Mode and a timed Mock Exam that mirrors the real exam's question count and time limit (see [Study Modes](#study-modes))
 - **Session checkpoint** — questions already covered in past Learning Mode sessions are automatically skipped so your team never repeats the same questions across launches
 - **Cohort-friendly** — set a team name, track progress on a shared screen with a live question navigator
-- **Materials tab** — inline PDF viewer of exam guides, a domain/scenario blueprint summary, and curated reference links
+- **Materials tab** — a Cram Sheet, the Five-Actors mental model + 8-step agentic loop, a 40+ term glossary, worked step-by-step walkthroughs for all 6 named exam scenarios, a capstone project brief, an inline PDF viewer of exam guides, a domain/scenario blueprint summary, and curated reference links (see [Study Materials](#study-materials))
 - **AI-agnostic question generation** — upload a PDF or paste text and generate new questions using **Anthropic (Claude)**, **OpenAI (GPT)**, or **Google (Gemini)** — bring your own API key for whichever provider you prefer
 - **Pluggable persistence** — local JSON files by default, or a shared Postgres database when hosting in the cloud (see [Cloud Deployment](#cloud-deployment--session-persistence))
 
@@ -68,8 +68,13 @@ claude-architect-cert-app/
 │   └── lint_questions.py          # Flags questions.json entries with structural issues or unparsed explanations
 ├── tests/                          # pytest suite for app.py / storage.py / ai_providers.py / scripts/
 └── materials/
-    ├── *.pdf                      # Exam guides / question source PDFs shown in the Materials tab
-    ├── cheat_sheets.json           # Condensed per-domain exam facts (Materials → Cheat Sheets tab)
+    ├── *.pdf                        # Exam guides / question source PDFs shown in the Materials tab
+    ├── cheat_sheets.json             # Condensed per-domain exam facts (Materials → Cheat Sheets tab)
+    ├── cram_sheet.json                # One-pager: core model, per-domain must-knows, common traps (Materials → Cram Sheet)
+    ├── mental_model.json              # The Five Actors + 8-step agentic loop (Materials → Mental Model)
+    ├── glossary.json                  # 40+ searchable exam terms grouped by domain (Materials → Glossary)
+    ├── scenario_walkthroughs.json     # Worked step-by-step trace for each of the 6 exam scenarios (Materials → Scenario Walkthroughs)
+    ├── capstone.json                   # Guided capstone project brief spanning all 5 domains (Materials → Capstone Project)
     ├── claude_code_reference.json  # Claude Code CLI operational reference (Materials → Claude Code Reference tab)
     └── reference_links.json       # Curated reference links
 ```
@@ -203,7 +208,11 @@ A concrete end-to-end path using a free-tier host on each side:
 
 ## Study Materials
 
-The `materials/` folder contains all reference content surfaced in the **Materials** tab.
+The `materials/` folder contains all reference content surfaced in the **Materials** tab, grouped into three tiers:
+
+- **Quick Reference** — Cram Sheet (one-pager for right before the exam), Cheat Sheets (per-domain key facts), Mental Model (the Five Actors and the 8-step agentic loop nearly every scenario question is a variation of), Glossary (40+ searchable terms), Claude Code Reference, Exam Blueprint, Reference Links.
+- **Worked Walkthroughs** — a step-by-step trace through the agentic loop for each of the 6 named exam scenarios (setup → trace → key lesson → common trap), plus a Capstone Project brief for building a real multi-domain agent as prep beyond the question bank.
+- **Exam Guides** — full source PDFs.
 
 **Adding a PDF**: drop any `.pdf` file into `materials/` — the app automatically picks it up and creates a new tab, named from the filename (`prompt-engineering-guide.pdf` → **Prompt Engineering Guide**). No code changes needed.
 

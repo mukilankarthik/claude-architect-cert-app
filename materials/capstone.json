@@ -1,0 +1,67 @@
+{
+  "title": "Capstone: Build a Helpdesk Resolution Agent",
+  "why": "The exam explicitly tests judgment calls from production work — courses and question banks alone won't carry you through the scenario-based items. Building one real system that touches all 5 domains is the single highest-leverage thing you can do beyond the question bank.",
+  "overview": "Build a small but real agentic helpdesk system: it receives a support request, looks up account/order context through tools, decides on an action (answer, refund, escalate), and is bounded by hard-coded gates so it can never take an action beyond its authority — regardless of how it's prompted. Scope it to a weekend project, not a product.",
+  "minimum_scope": [
+    "A harness (a script or small service is enough — it doesn't need a UI) that calls the Claude API directly, not just Claude Code.",
+    "At least 2 tools with real (or realistically mocked) backends — e.g. an order-lookup tool and a refund-issuance tool.",
+    "At least one hard-coded gate that blocks a tool call regardless of the model's stated reasoning (e.g. a refund amount ceiling).",
+    "Structured output for at least one tool's result and for the agent's final decision (JSON, not free text).",
+    "A basic escalation path — some condition that hands off to \"human review\" instead of silently failing or looping forever."
+  ],
+  "phases": [
+    {
+      "title": "1. Design the loop",
+      "domain_focus": "Agentic Architecture & Orchestration",
+      "tasks": [
+        "Write out your own version of the 8-step loop (see Mental Model page) for this specific system before writing code.",
+        "Decide: single agent, or coordinator + subagents? Justify it — most helpdesk flows don't need multi-agent orchestration; add it only if there's a genuine reason (e.g. a separate research subagent for looking up policy docs).",
+        "Define your exit conditions explicitly: what ends the loop successfully, what forces an escalation, what's the max-turn ceiling."
+      ]
+    },
+    {
+      "title": "2. Design the tools",
+      "domain_focus": "Tool Design & MCP Integration",
+      "tasks": [
+        "Write tool schemas with clear, disambiguating descriptions (especially if you have two tools that could be confused, e.g. cancel_order vs. refund_order).",
+        "Design at least one dry-run/preview parameter for your highest-stakes tool and enforce that the harness actually surfaces it.",
+        "Design distinct error shapes for transient vs. permanent tool failures and confirm your harness handles each differently (retry vs. don't-retry)."
+      ]
+    },
+    {
+      "title": "3. Design the prompts and output",
+      "domain_focus": "Prompt Engineering & Structured Output",
+      "tasks": [
+        "Define a strict JSON schema for the agent's final decision (e.g. {action, reasoning, confidence}).",
+        "Build a validation-retry loop: if the schema fails to parse, feed the specific error back and retry.",
+        "Add one semantic check beyond schema validity (e.g. if action is \"refund\", amount must be > 0 and <= the order total)."
+      ]
+    },
+    {
+      "title": "4. Wire in Claude Code for the build itself",
+      "domain_focus": "Claude Code Configuration & Workflows",
+      "tasks": [
+        "Write a CLAUDE.md for this project describing its architecture and conventions (this doubles as practice for the domain and as real documentation).",
+        "Use plan mode for at least one non-trivial change (e.g. adding the escalation path) and compare the experience to direct execution on a trivial one.",
+        "Add at least one hook (e.g. run your test suite in PostToolUse after an edit) so enforcement doesn't rely on you remembering to run it."
+      ]
+    },
+    {
+      "title": "5. Add reliability under load",
+      "domain_focus": "Context Management & Reliability",
+      "tasks": [
+        "Simulate a long conversation (10+ turns) and observe whether the agent's adherence to its own rules drifts — try re-anchoring the system prompt periodically and compare.",
+        "Add trimming/summarization for stale tool results once they're no longer relevant to the current turn.",
+        "Decide and document your clarify-vs-act policy for this specific domain (helpdesk decisions are usually low-cost-to-ask, high-cost-to-guess-wrong — does your agent's behavior reflect that?)."
+      ]
+    }
+  ],
+  "self_assessment_rubric": [
+    {"domain": "Agentic Architecture & Orchestration", "check": "Can you point to the exact code line where your loop decides to stop vs. continue? Is there a hard max-turn ceiling?"},
+    {"domain": "Tool Design & MCP Integration", "check": "If you fed your refund tool a wildly out-of-range amount, does a gate block it before the backend is touched — every time, not just usually?"},
+    {"domain": "Claude Code Configuration & Workflows", "check": "Could a new teammate onboard onto this project using only your CLAUDE.md and repo, without you explaining it verbally?"},
+    {"domain": "Prompt Engineering & Structured Output", "check": "Does your system correctly return null/no-action when it genuinely doesn't have enough information, instead of guessing?"},
+    {"domain": "Context Management & Reliability", "check": "After a deliberately long, meandering conversation, does the agent still remember and enforce its original constraints?"}
+  ],
+  "closing_note": "You don't need to finish a polished product. The point is to have made the specific mistakes the exam asks about — a gate you forgot, a subagent context you didn't pass, a schema that parsed but was semantically wrong — because recognizing those failure modes from having hit them yourself is what the scenario-based questions are actually testing."
+}

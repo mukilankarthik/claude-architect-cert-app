@@ -1,0 +1,83 @@
+{
+  "intro": "Each of the 6 named exam scenarios below traces one concrete run through the loop from the Mental Model page — context in, decision out, gate check, tool execution, result. Read these after the Mental Model page, and use them alongside Scenario Practice on Home.",
+  "walkthroughs": [
+    {
+      "name": "Customer Support Resolution Agent",
+      "setup": "A customer messages support asking for a $500 refund on order #4471, citing a damaged item. The agent has tools for order lookup, refund issuance, and human escalation.",
+      "trace": [
+        "Context assembly: harness pulls the order record, the refund policy doc, and the customer's message into context — not the full historical order database, just what's relevant to this order.",
+        "Model decision: Claude reads the policy, sees the item qualifies for a refund, and returns tool_use for issue_refund with order_id: \"4471\", amount_cents: 50000.",
+        "Gate enforcement: the harness checks this request against a hard-coded auto-approval ceiling of $200. $500 exceeds it — the gate blocks execution regardless of how confident or well-justified the model's reasoning was.",
+        "Branch to escalation: the harness's gate failure path routes to a human-review tool call instead of issue_refund, and the case is queued with the order context attached.",
+        "Response to customer: the agent tells the customer their refund needs review above a certain amount and gives a timeframe — an honest status update, not a fabricated approval."
+      ],
+      "key_lesson": "The refund amount and the auto-approval ceiling are both known before the call is made — this must be enforced as a deterministic comparison in the harness, never left to the model to \"remember\" the limit from a system prompt instruction, which a sufficiently unusual customer message could talk around.",
+      "watch_for": "A tempting wrong answer is \"add a stronger instruction to the system prompt telling Claude not to approve refunds over $200.\" That's still prompt-level enforcement — the exam rewards recognizing that only harness code can make a limit unconditional."
+    },
+    {
+      "name": "Code Generation with Claude Code",
+      "setup": "A developer asks Claude Code to add a new API endpoint that touches auth, a shared serializer, and 3 existing routes across a mid-size Python service.",
+      "trace": [
+        "Context assembly: Claude Code reads the relevant CLAUDE.md (project conventions), then greps for existing route definitions and the serializer's usages rather than reading the whole repo.",
+        "Plan mode: given the change touches auth and shared code, the developer engages plan mode first — Claude Code explores read-only and proposes a plan (files to touch, order of changes) before any edit happens.",
+        "Model decision: Claude returns a structured plan as its turn; the harness (Claude Code itself) shows this to the developer and waits for approval rather than auto-executing.",
+        "Approved plan → tool execution: file edit tools run one at a time; a hook configured for PostToolUse runs the test suite after each file save.",
+        "Gate enforcement: a lint/test failure from the hook is surfaced back into context automatically, and Claude Code iterates on the specific failing file rather than the developer manually re-prompting from scratch."
+      ],
+      "key_lesson": "Plan mode exists specifically for changes above a complexity/risk threshold — a small one-file typo fix doesn't need it, but a change crossing auth + shared serializer + multiple call sites does. The exam tests recognizing *when* the extra step earns its cost, not that it's always required.",
+      "watch_for": "Don't confuse a slash command (a stored, reusable prompt/workflow) with a hook (harness-enforced automatic behavior on a lifecycle event). A slash command can be skipped by a user; a hook fires unconditionally, which is why enforcement (\"always run tests after an edit\") belongs in a hook, not a command's instructions."
+    },
+    {
+      "name": "Multi-Agent Research System",
+      "setup": "A coordinator agent needs to answer \"how did our top 3 competitors change pricing this quarter\" by combining a web-search subagent and a document-analysis subagent reading internal sales notes.",
+      "trace": [
+        "Context assembly per subagent: the coordinator gives the web-search subagent only the competitor names and question — not the internal sales notes; it gives the document-analysis subagent only the sales notes — not search results. Each subagent's context is scoped to its job.",
+        "Parallel dispatch: since the two subagents have no dependency on each other's output, the coordinator invokes both concurrently rather than sequentially, cutting wall-clock latency.",
+        "Model decisions: each subagent returns its own structured findings (e.g. a list of {competitor, change, source}) as its final turn — this is data returned to the coordinator, not a shared memory the other subagent can see.",
+        "Coordinator synthesis: the coordinator explicitly includes both subagents' returned outputs in the synthesis agent's prompt. If it forgot to pass one, the synthesis agent would report missing data — subagents never auto-share context.",
+        "Reflection: the coordinator reviews the synthesized answer for gaps (e.g. one competitor has no pricing data) and re-delegates a targeted follow-up query to the web-search subagent rather than stopping short or fabricating a fourth data point."
+      ],
+      "key_lesson": "Subagents are isolated by default — every piece of information one subagent needs from another's work must be explicitly threaded through the coordinator's prompts. This is the single most-tested fact about multi-agent orchestration on the exam.",
+      "watch_for": "\"The subagent's context window was too small\" is a common distractor when the real cause is \"the coordinator never passed the data in the first place.\" A too-small context window produces truncated data, not an explicit report of zero data."
+    },
+    {
+      "name": "Developer Productivity with Claude",
+      "setup": "A developer wants Claude Code to find every place a deprecated internal auth helper is called across a 40,000-line monorepo and assess which callers are safe to migrate automatically.",
+      "trace": [
+        "Tool selection: rather than reading files one by one, the harness's grep/content-search tool locates every call site by pattern in one pass — the exam-tested reason to prefer search tools over sequential file reads at this scale.",
+        "MCP backend: the deprecated-helper's usage metadata actually lives in an internal service catalog, reached through a project-scoped MCP server rather than a built-in tool — the team shares this server via .mcp.json so every developer gets the same connector.",
+        "Model decision: Claude classifies each call site (safe to auto-migrate vs. needs manual review) and returns this as structured output, one entry per call site, rather than a prose summary that's hard to act on programmatically.",
+        "Gate enforcement: a dry-run flag on the migration tool is required before any real edit — the harness enforces that the developer sees the diff preview for every \"needs manual review\" site before anything executes for real.",
+        "Tool execution: only the sites marked safe proceed to an actual automated edit; the rest are written to a review queue file instead."
+      ],
+      "key_lesson": "As the number of available tools/connectors grows, tool-selection accuracy drops — this scenario is the exam's vehicle for testing that a discovery-style tool (or scoping which tools are exposed) is the fix, not just writing better tool descriptions.",
+      "watch_for": "Dry-run isn't just a nice-to-have parameter — the exam frames it as a required gate for destructive/high-stakes tools. A design that adds a dry-run parameter but doesn't force the harness to actually show the preview before real execution hasn't fixed anything."
+    },
+    {
+      "name": "Claude Code for Continuous Integration",
+      "setup": "A PR review pipeline runs Claude Code non-interactively on every pull request to leave inline review comments and flag risky changes before a human reviewer looks at it.",
+      "trace": [
+        "Context assembly: the harness (CI job) gives Claude Code the diff, the relevant CLAUDE.md, and the PR description — not the entire repository history, keeping the review focused and fast.",
+        "Model decision: instead of one broad \"review this PR\" prompt, the pipeline runs separate focused passes — security, API design, business logic — each returning its own structured findings list, because a single broad reviewer trades recall against precision across all concern types at once.",
+        "Gate enforcement: findings above a severity threshold block the merge (a required status check); lower-severity findings post as comments only — a deterministic split the harness enforces, not something left to the model's judgment call per comment.",
+        "Tool execution: the harness posts comments and status checks via the version-control API — Claude Code itself never has merge or push permissions in this pipeline, only comment/status-check scopes.",
+        "Iteration: if a concern category's pass is under- or over-flagging in practice, the team retunes that pass's prompt independently, without touching the other passes — the exact benefit of splitting reviews by concern in the first place."
+      ],
+      "key_lesson": "Splitting a review by concern (security / API design / business logic) instead of one broad prompt is the tested fix for the recall-vs-precision tradeoff, and it also lets a team fix one under-performing category without regressing the others.",
+      "watch_for": "Non-interactive/headless invocations still need explicit tool-permission scoping — running Claude Code in CI is not automatically safer just because there's no human at the keyboard approving each action; permissions and gates apply the same as in the interactive case."
+    },
+    {
+      "name": "Structured Data Extraction",
+      "setup": "A pipeline extracts structured line items (SKU, quantity, unit price, category) from scanned vendor invoices of wildly inconsistent formats into a fixed JSON schema for downstream billing.",
+      "trace": [
+        "Schema design: the category field is defined as an enum from the sampled invoice set, plus an explicit \"other\" value — because the real-world category space is wider than any sample, and without \"other\" a legitimate-but-unseen category fails validation outright.",
+        "Model decision: Claude returns line items against the schema; on a given invoice, unit_price for one item is genuinely absent (illegible scan) and the model correctly returns null rather than guessing a plausible-looking number.",
+        "Validation-retry loop: the harness's JSON schema validator catches a different item where quantity was returned as a string instead of a number — a syntax-level error — and retries with the specific error fed back to the model, which resolves it in one more turn.",
+        "Semantic check beyond syntax: a second validator confirms each line item's quantity × unit_price sums to the invoice's stated subtotal; a mismatch here is a semantic error that schema validation alone would never catch, and triggers a targeted re-extraction of just that item instead of the whole invoice.",
+        "Confidence-based triage: line items the model flags low-confidence (e.g. from a badly scanned region) route to human review; the team periodically samples high-confidence extractions too, to confirm the confidence signal is actually trustworthy before raising the auto-accept threshold further."
+      ],
+      "key_lesson": "A schema that validates syntactically can still be semantically wrong — retry loops keyed only on \"did it parse\" will pass through invoices where the numbers just don't add up. Real reliability comes from adding a semantic check independent of the schema validator.",
+      "watch_for": "\"The model fabricated a number instead of returning null\" and \"the schema had no escape hatch for an unseen enum value\" are two distinct failure modes tested separately on the exam — don't conflate a missing-data problem with a schema-coverage problem; they have different fixes."
+    }
+  ]
+}

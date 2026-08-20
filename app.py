@@ -594,6 +594,36 @@ def load_claude_code_reference() -> dict:
         return json.load(f)
 
 
+@st.cache_data
+def load_mental_model() -> dict:
+    with open(MATERIALS_DIR / "mental_model.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_scenario_walkthroughs() -> dict:
+    with open(MATERIALS_DIR / "scenario_walkthroughs.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_glossary() -> dict:
+    with open(MATERIALS_DIR / "glossary.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_cram_sheet() -> dict:
+    with open(MATERIALS_DIR / "cram_sheet.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@st.cache_data
+def load_capstone() -> dict:
+    with open(MATERIALS_DIR / "capstone.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def get_materials_groups() -> list[dict]:
     """Materials sections grouped for the browsable gallery landing page (see the
     "materials" mode below). Grouping puts the highest-value, quickest-to-scan
@@ -614,8 +644,20 @@ def get_materials_groups() -> list[dict]:
             "description": "Condensed, exam-ready references — start here if you only have a few minutes.",
             "items": [
                 {
+                    "label": "🗺️ Cram Sheet", "icon": "🗺️", "title": "Cram Sheet",
+                    "description": "The one-pager for right before the exam — core model, per-domain must-knows, and the traps.",
+                },
+                {
                     "label": "📇 Cheat Sheets", "icon": "📇", "title": "Cheat Sheets",
                     "description": "Condensed key facts per domain — a fast pass before the exam.",
+                },
+                {
+                    "label": "🧭 Mental Model", "icon": "🧭", "title": "Mental Model",
+                    "description": "The Five Actors and the 8-step agentic loop underlying almost every scenario question.",
+                },
+                {
+                    "label": "📖 Glossary", "icon": "📖", "title": "Glossary",
+                    "description": "40+ exam terms defined precisely, grouped by domain.",
                 },
                 {
                     "label": "⌨️ Claude Code Reference", "icon": "⌨️", "title": "Claude Code Reference",
@@ -628,6 +670,20 @@ def get_materials_groups() -> list[dict]:
                 {
                     "label": "🔗 Reference Links", "icon": "🔗", "title": "Reference Links",
                     "description": "Curated external docs and guides worth reading alongside this app.",
+                },
+            ],
+        },
+        {
+            "title": "🧩 Worked Walkthroughs",
+            "description": "Each of the 6 named exam scenarios traced step by step through the agentic loop.",
+            "items": [
+                {
+                    "label": "🧩 Scenario Walkthroughs", "icon": "🧩", "title": "Scenario Walkthroughs",
+                    "description": "A worked trace, key lesson, and common trap for each of the 6 exam scenarios.",
+                },
+                {
+                    "label": "🎓 Capstone Project", "icon": "🎓", "title": "Capstone Project",
+                    "description": "Build a real helpdesk agent touching all 5 domains — the highest-leverage prep beyond the question bank.",
                 },
             ],
         },
@@ -2054,6 +2110,122 @@ elif st.session_state.mode == "materials":
                 mime="application/pdf",
                 key=f"dl_{pdf_path.stem}",
             )
+
+        elif section == "🗺️ Cram Sheet":
+            cram = load_cram_sheet()
+            st.info(cram["headline"])
+            st.subheader("Core Model")
+            st.markdown("\n".join(f"- {point}" for point in cram["core_model"]))
+            st.write("")
+            for domain in cram["by_domain"]:
+                st.subheader(f"{domain['domain']} ({domain['weight']})")
+                st.markdown("\n".join(f"- {point}" for point in domain["must_know"]))
+                st.write("")
+            st.subheader("⚠️ Traps to Recognize")
+            st.markdown("\n".join(f"- {trap}" for trap in cram["traps"]))
+            cram_md = (
+                "# Cram Sheet\n\n" + cram["headline"] + "\n\n## Core Model\n"
+                + "\n".join(f"- {p}" for p in cram["core_model"]) + "\n\n"
+                + "\n\n".join(
+                    f"## {d['domain']} ({d['weight']})\n" + "\n".join(f"- {p}" for p in d["must_know"])
+                    for d in cram["by_domain"]
+                )
+                + "\n\n## Traps to Recognize\n" + "\n".join(f"- {t}" for t in cram["traps"])
+            )
+            st.download_button(
+                label="⬇️ Download Cram Sheet (Markdown)",
+                data=cram_md,
+                file_name="cca-f-cram-sheet.md",
+                mime="text/markdown",
+            )
+
+        elif section == "🧭 Mental Model":
+            mm = load_mental_model()
+            st.info(mm["intro"])
+            st.subheader("The Five Actors")
+            cols = st.columns(len(mm["actors"]))
+            for col, actor in zip(cols, mm["actors"]):
+                with col:
+                    st.markdown(
+                        f"<div class='cca-card'><strong>{actor['icon']} {actor['name']}</strong><br>"
+                        f"<small>{actor['role']}</small></div>",
+                        unsafe_allow_html=True,
+                    )
+            st.write("")
+            st.subheader("The 8-Step Loop")
+            for step in mm["loop_steps"]:
+                st.markdown(f"**{step['step']}. {step['title']}** — {step['detail']}")
+            st.write("")
+            st.success(f"**Core principle:** {mm['core_principle']}")
+            st.warning(f"**Exam tip:** {mm['exam_tip']}")
+
+        elif section == "📖 Glossary":
+            st.caption("40+ terms grouped by domain. Search below or scan by section.")
+            glossary = load_glossary()
+            terms = glossary["terms"]
+            query = st.text_input("🔍 Search terms", value="")
+            if query:
+                q = query.lower()
+                terms = [t for t in terms if q in t["term"].lower() or q in t["definition"].lower()]
+            domains_order = [
+                "Agentic Architecture & Orchestration",
+                "Claude Code Configuration & Workflows",
+                "Prompt Engineering & Structured Output",
+                "Tool Design & MCP Integration",
+                "Context Management & Reliability",
+            ]
+            for domain in domains_order:
+                domain_terms = sorted((t for t in terms if t["domain"] == domain), key=lambda t: t["term"])
+                if not domain_terms:
+                    continue
+                st.subheader(domain)
+                for t in domain_terms:
+                    st.markdown(f"**{t['term']}** — {t['definition']}")
+                st.write("")
+            glossary_md = "# Glossary\n\n" + "\n\n".join(
+                f"## {d}\n" + "\n\n".join(f"**{t['term']}** — {t['definition']}" for t in glossary["terms"] if t["domain"] == d)
+                for d in domains_order
+            )
+            st.download_button(
+                label="⬇️ Download Glossary (Markdown)",
+                data=glossary_md,
+                file_name="cca-f-glossary.md",
+                mime="text/markdown",
+            )
+
+        elif section == "🧩 Scenario Walkthroughs":
+            walkthroughs = load_scenario_walkthroughs()
+            st.caption(walkthroughs["intro"])
+            names = [w["name"] for w in walkthroughs["walkthroughs"]]
+            pick = st.selectbox("Choose a scenario", options=names)
+            w = next(w for w in walkthroughs["walkthroughs"] if w["name"] == pick)
+            st.subheader(w["name"])
+            st.markdown(f"**Setup:** {w['setup']}")
+            st.write("")
+            st.markdown("**Trace through the loop:**")
+            for i, step in enumerate(w["trace"], start=1):
+                st.markdown(f"{i}. {step}")
+            st.write("")
+            st.success(f"**Key lesson:** {w['key_lesson']}")
+            st.warning(f"**Watch for:** {w['watch_for']}")
+
+        elif section == "🎓 Capstone Project":
+            capstone = load_capstone()
+            st.subheader(capstone["title"])
+            st.info(capstone["why"])
+            st.markdown(capstone["overview"])
+            st.write("")
+            st.markdown("**Minimum scope:**")
+            st.markdown("\n".join(f"- {item}" for item in capstone["minimum_scope"]))
+            st.write("")
+            for phase in capstone["phases"]:
+                with st.expander(f"{phase['title']}  ·  {phase['domain_focus']}"):
+                    st.markdown("\n".join(f"- {task}" for task in phase["tasks"]))
+            st.write("")
+            st.subheader("Self-Assessment Rubric")
+            st.table([{"Domain": r["domain"], "Check yourself": r["check"]} for r in capstone["self_assessment_rubric"]])
+            st.write("")
+            st.markdown(f"*{capstone['closing_note']}*")
 
         elif section == "📇 Cheat Sheets":
             st.caption("Condensed key facts per domain — a quick pass before the exam, not a substitute for the lessons.")

@@ -1,0 +1,74 @@
+{
+  "intro": "Almost every exam scenario is a variation on one loop. Learn this once and most \"what happens next\" questions become mechanical instead of memorized.",
+  "actors": [
+    {
+      "name": "User / Entry Point",
+      "icon": "🧑",
+      "role": "Where a task originates — a person typing a message, a webhook firing, a cron job kicking off a batch run. The exam treats all three the same: something outside the loop hands the harness a task."
+    },
+    {
+      "name": "The Harness",
+      "icon": "⚙️",
+      "role": "Deterministic code you control: assembles context, calls the API, parses the response, executes tools, enforces gates (budgets, permissions, business rules), and decides whether to loop again or stop. Everything non-negotiable belongs here, not in a prompt."
+    },
+    {
+      "name": "The Model (Claude)",
+      "icon": "🧠",
+      "role": "The reasoning engine. It reads context and tool definitions and returns a decision as structured data — text, a tool_use block, or both. It never directly touches a database, a file, or a payment rail."
+    },
+    {
+      "name": "Claude API",
+      "icon": "🔌",
+      "role": "The Messages endpoint the harness calls. It's the boundary between your code and the model — request in (messages, tools, system prompt), response out (content blocks, stop_reason)."
+    },
+    {
+      "name": "Tool Backends",
+      "icon": "🛠️",
+      "role": "The real systems a tool call ultimately reaches — a database, an internal API, a payment processor, the filesystem. The model decides to call a tool; the harness's tool-execution code is what actually reaches the backend."
+    }
+  ],
+  "loop_steps": [
+    {
+      "step": 1,
+      "title": "Context assembly",
+      "detail": "The harness gathers what the model needs to decide: conversation history, retrieved documents, prior tool results, system prompt, and the list of tools currently available."
+    },
+    {
+      "step": 2,
+      "title": "Request to the model",
+      "detail": "The harness sends messages + tool schemas + system prompt to the Claude API. Nothing here is optional context — if the model needs it to decide correctly, it must be in this payload."
+    },
+    {
+      "step": 3,
+      "title": "Model returns a decision",
+      "detail": "The response comes back with a stop_reason. `end_turn` means Claude is done and produced a final answer. `tool_use` means Claude is requesting one or more tool calls, each as a structured object with a name and input — a decision, not an action."
+    },
+    {
+      "step": 4,
+      "title": "Harness branches on stop_reason",
+      "detail": "This is where deterministic code takes over. `end_turn` → return the response to the user. `tool_use` → proceed to gate enforcement before anything executes."
+    },
+    {
+      "step": 5,
+      "title": "Gate enforcement",
+      "detail": "Before a requested tool call actually runs, the harness checks it against hard rules: spend limits, permission scopes, allow/deny lists, rate limits, compliance constraints. A gate is a code-level `if`, not a sentence in the system prompt — no prompt wording lets the model talk its way past one."
+    },
+    {
+      "step": 6,
+      "title": "Tool execution",
+      "detail": "If the gate passes, the harness's tool-execution code calls the real backend (the actual database write, the actual API request) and captures the result — success, data, or a structured error."
+    },
+    {
+      "step": 7,
+      "title": "Result fed back, loop continues",
+      "detail": "The tool result is appended to the conversation as a tool_result block and the harness returns to Step 2 — back to the model — until it eventually returns `end_turn` or an explicit exit condition (max turns, escalation) is hit."
+    },
+    {
+      "step": 8,
+      "title": "Verification / evaluation (optional but common on the exam)",
+      "detail": "Mature harnesses add a check after the loop settles — a schema validator, a second model call acting as a judge, or a human-in-the-loop review — before treating the result as final, especially for high-stakes actions."
+    }
+  ],
+  "core_principle": "The model decides; the harness executes. Claude's job ends at returning a structured decision. Whether that decision is allowed to become a real-world effect is entirely the harness's call — which is exactly why guardrails belong in code, not prompt wording.",
+  "exam_tip": "When a scenario asks \"why did the agent do X\" or \"what should have prevented X,\" first identify which of the 8 loop steps is being described, then ask whether the failure is a context problem (steps 1-2), a model reasoning problem (step 3), or a missing/weak gate (step 5). The large majority of \"design a safer system\" questions are really asking you to add or fix a gate at step 5."
+}
